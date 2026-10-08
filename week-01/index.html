@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>2048</title>
+<style>
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    padding: 24px 16px;
+    font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+    background: #faf8ef;
+    color: #776e65;
+    display: flex;
+    justify-content: center;
+  }
+  .wrap { width: 100%; max-width: 560px; }
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  h1 { font-size: 48px; margin: 0; color: #776e65; }
+  .scores { display: flex; gap: 6px; }
+  .score-box {
+    background: #bbada0;
+    color: #fff;
+    border-radius: 6px;
+    padding: 6px 12px;
+    text-align: center;
+    min-width: 70px;
+  }
+  .score-box .label { font-size: 12px; color: #eee4da; }
+  .score-box .value { font-size: 20px; font-weight: bold; }
+  .help {
+    font-size: 14px;
+    line-height: 1.5;
+    background: #eee4da;
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-bottom: 12px;
+  }
+  .bar {
+    display: flex;
+    justify-content: flex-end;
+    margin-bottom: 12px;
+  }
+  button {
+    background: #8f7a66;
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    padding: 10px 18px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+  }
+  button:hover { background: #9f8b77; }
+  /* 판은 정사각형. 칸 크기와 간격을 판 크기의 % 로 정해서
+     모든 칸이 똑같은 정사각형이 되게 함. 칸 크기는 스크립트의 SIZE 로 계산 */
+  .board {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    background: #bbada0;
+    border-radius: 8px;
+    touch-action: none;
+    user-select: none;
+  }
+  .cell, .tile {
+    position: absolute;
+    border-radius: 6px;
+  }
+  .cell { background: rgba(238, 228, 218, 0.35); }
+  .tile {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: bold;
+    font-size: clamp(14px, 4.5vw, 26px);
+    transition: left 0.12s ease-in-out, top 0.12s ease-in-out;
+  }
+  .tile.appear { animation: appear 0.15s ease; }
+  .tile.pop { animation: pop 0.15s ease; z-index: 1; }
+  @keyframes appear {
+    0% { transform: scale(0); }
+    100% { transform: scale(1); }
+  }
+  @keyframes pop {
+    0% { transform: scale(1); }
+    50% { transform: scale(1.2); }
+    100% { transform: scale(1); }
+  }
+  .t2    { background: #eee4da; color: #776e65; }
+  .t4    { background: #ede0c8; color: #776e65; }
+  .t8    { background: #f2b179; color: #fff; }
+  .t16   { background: #f59563; color: #fff; }
+  .t32   { background: #f67c5f; color: #fff; }
+  .t64   { background: #f65e3b; color: #fff; }
+  .t128  { background: #edcf72; color: #fff; font-size: clamp(12px, 3.8vw, 22px); }
+  .t256  { background: #edcc61; color: #fff; font-size: clamp(12px, 3.8vw, 22px); }
+  .t512  { background: #edc850; color: #fff; font-size: clamp(12px, 3.8vw, 22px); }
+  .t1024 { background: #edc53f; color: #fff; font-size: clamp(10px, 3vw, 18px); }
+  .t2048 { background: #edc22e; color: #fff; font-size: clamp(10px, 3vw, 18px); }
+  .tbig  { background: #3c3a32; color: #fff; font-size: clamp(9px, 2.6vw, 15px); }
+  .overlay {
+    position: absolute;
+    z-index: 2;
+    inset: 0;
+    background: rgba(238, 228, 218, 0.8);
+    border-radius: 8px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    font-size: 32px;
+    font-weight: bold;
+  }
+  .overlay .btns { display: flex; gap: 8px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>2048</h1>
+    <div class="scores">
+      <div class="score-box"><div class="label">점수</div><div class="value" id="score">0</div></div>
+      <div class="score-box"><div class="label">최고 점수</div><div class="value" id="best">0</div></div>
+    </div>
+  </header>
+
+  <div class="help">
+    <b>사용법</b> · <b>방향키(← ↑ → ↓)</b>로 타일을 밀어요. 휴대폰은 화면을 쓸어 넘기면 돼요.<br>
+    같은 숫자가 나란히 있으면 몇 개든 하나로 합쳐져요. (2 두 개 → 4, 세 개 → 8, 네 개 → 16)<br>
+    <b>2048</b> 이상 타일을 만들면 승리!
+  </div>
+
+  <div class="bar">
+    <button id="restart">다시 하기</button>
+  </div>
+
+  <div class="board" id="board">
+    <div class="overlay" id="overlay" hidden>
+      <div id="overlay-text"></div>
+      <div class="btns">
+        <button id="keep-going" hidden>계속 하기</button>
+        <button id="overlay-restart">다시 하기</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  const SIZE = 8; // 한 줄의 칸 수 (8 × 8)
+  const boardEl = document.getElementById("board");
+  const scoreEl = document.getElementById("score");
+  const bestEl = document.getElementById("best");
+  const overlay = document.getElementById("overlay");
+  const overlayText = document.getElementById("overlay-text");
+  const keepGoingBtn = document.getElementById("keep-going");
+
+  const MOVE_MS = 120; // 타일이 미끄러지는 시간 (CSS transition 과 맞춤)
+
+  let grid, score, won, keepGoing;
+  let best = loadBest();
+  let nextId = 0;
+  // 미끄러지는 동안 기다리는 일: 합쳐져 사라질 타일, 새로 보일 타일
+  let pending = null;
+
+  // 칸 크기와 위치를 판 크기의 % 로 계산 (칸 SIZE 개 + 간격 SIZE+1 개 = 100%)
+  const GAP = 1.2;
+  const CELL = (100 - GAP * (SIZE + 1)) / SIZE;
+  function pos(n) { return (GAP + n * (CELL + GAP)) + "%"; }
+  function place(el, r, c) {
+    el.style.width = el.style.height = CELL + "%";
+    el.style.left = pos(c);
+    el.style.top = pos(r);
+  }
+
+  // 바탕 칸 16개 만들기
+  for (let r = 0; r < SIZE; r++)
+    for (let c = 0; c < SIZE; c++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      place(cell, r, c);
+      boardEl.insertBefore(cell, overlay);
+    }
+
+  function loadBest() {
+    try { return Number(localStorage.getItem("best2048")) || 0; }
+    catch (e) { return 0; }
+  }
+  function saveBest() {
+    try { localStorage.setItem("best2048", best); } catch (e) {}
+  }
+
+  // 타일 하나를 화면에 그리기
+  function showTile(tile, anim) {
+    const el = document.createElement("div");
+    el.className = "tile " + (tile.value > 2048 ? "tbig" : "t" + tile.value);
+    if (anim) el.classList.add(anim);
+    el.textContent = tile.value;
+    place(el, tile.r, tile.c);
+    boardEl.insertBefore(el, overlay);
+    tile.el = el;
+  }
+
+  function startGame() {
+    finishMove();
+    boardEl.querySelectorAll(".tile").forEach(el => el.remove());
+    grid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+    score = 0;
+    won = false;
+    keepGoing = false;
+    showTile(addRandomTile(), "appear");
+    showTile(addRandomTile(), "appear");
+    overlay.hidden = true;
+    updateScore();
+  }
+
+  function addRandomTile() {
+    const empty = [];
+    for (let r = 0; r < SIZE; r++)
+      for (let c = 0; c < SIZE; c++)
+        if (!grid[r][c]) empty.push([r, c]);
+    if (empty.length === 0) return null;
+    const [r, c] = empty[Math.floor(Math.random() * empty.length)];
+    const tile = { id: nextId++, value: Math.random() < 0.9 ? 2 : 4, r, c, el: null };
+    grid[r][c] = tile;
+    return tile;
+  }
+
+  // 방향에 맞는 한 줄의 칸 위치들 (미는 쪽 끝부터 순서대로)
+  function linePositions(dir, i) {
+    const list = [];
+    for (let j = 0; j < SIZE; j++) {
+      if (dir === "left")  list.push([i, j]);
+      if (dir === "right") list.push([i, SIZE - 1 - j]);
+      if (dir === "up")    list.push([j, i]);
+      if (dir === "down")  list.push([SIZE - 1 - j, i]);
+    }
+    return list;
+  }
+
+  function move(dir) {
+    if (!overlay.hidden) return;
+    finishMove(); // 앞 동작의 애니메이션이 남아 있으면 바로 마무리
+
+    const newGrid = Array.from({ length: SIZE }, () => Array(SIZE).fill(null));
+    const removeTiles = [];
+    const mergedTiles = [];
+    let moved = false;
+
+    for (let i = 0; i < SIZE; i++) {
+      const places = linePositions(dir, i);
+      const tiles = places.map(([r, c]) => grid[r][c]).filter(t => t);
+
+      // 나란히 있는 같은 숫자를 개수 상관없이 한 묶음으로 (방금 합쳐진 타일은 또 합쳐지지 않음)
+      const groups = [];
+      for (const t of tiles) {
+        const last = groups[groups.length - 1];
+        if (last && last[0].value === t.value) last.push(t);
+        else groups.push([t]);
+      }
+
+      groups.forEach((group, k) => {
+        const [r, c] = places[k];
+        for (const t of group) {
+          if (t.r !== r || t.c !== c) moved = true;
+          t.r = r;
+          t.c = c;
+          t.el.style.left = pos(c); // 여기서 미끄러지는 모션이 시작됨
+          t.el.style.top = pos(r);
+        }
+        if (group.length === 1) {
+          newGrid[r][c] = group[0];
+        } else {
+          const value = group[0].value * 2 ** (group.length - 1); // 2개 ×2, 3개 ×4, 4개 ×8 ...
+          const merged = { id: nextId++, value, r, c, el: null };
+          newGrid[r][c] = merged;
+          removeTiles.push(...group);
+          mergedTiles.push(merged);
+          score += value;
+          if (value >= 2048) won = true;
+        }
+      });
+    }
+
+    if (!moved) return; // 아무것도 안 움직였으면 끝
+
+    grid = newGrid;
+    const newTile = addRandomTile();
+    if (score > best) { best = score; saveBest(); }
+    updateScore();
+
+    pending = { removeTiles, mergedTiles, newTile, timer: setTimeout(finishMove, MOVE_MS) };
+  }
+
+  // 미끄러짐이 끝난 뒤: 합쳐진 타일 바꾸기, 새 타일 보이기, 게임 끝 확인
+  function finishMove() {
+    if (!pending) return;
+    clearTimeout(pending.timer);
+    pending.removeTiles.forEach(t => t.el.remove());
+    pending.mergedTiles.forEach(t => showTile(t, "pop"));
+    if (pending.newTile) showTile(pending.newTile, "appear");
+    pending = null;
+
+    if (won && !keepGoing) {
+      showOverlay("🎉 2048 달성!", true);
+    } else if (!canMove()) {
+      showOverlay("게임 끝!", false);
+    }
+  }
+
+  function canMove() {
+    for (let r = 0; r < SIZE; r++)
+      for (let c = 0; c < SIZE; c++) {
+        if (!grid[r][c]) return true;
+        const v = grid[r][c].value;
+        if (c < SIZE - 1 && grid[r][c + 1] && grid[r][c + 1].value === v) return true;
+        if (r < SIZE - 1 && grid[r + 1][c] && grid[r + 1][c].value === v) return true;
+      }
+    return false;
+  }
+
+  function showOverlay(text, showKeepGoing) {
+    overlayText.textContent = text;
+    keepGoingBtn.hidden = !showKeepGoing;
+    overlay.hidden = false;
+  }
+
+  function updateScore() {
+    scoreEl.textContent = score;
+    bestEl.textContent = best;
+  }
+
+  // 방향키
+  document.addEventListener("keydown", e => {
+    const keys = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down" };
+    if (keys[e.key]) {
+      e.preventDefault();
+      move(keys[e.key]);
+    }
+  });
+
+  // 휴대폰 쓸어 넘기기
+  let startX = 0, startY = 0;
+  boardEl.addEventListener("touchstart", e => {
+    startX = e.touches[0].clientX;
+    startY = e.touches[0].clientY;
+  }, { passive: true });
+  boardEl.addEventListener("touchend", e => {
+    const dx = e.changedTouches[0].clientX - startX;
+    const dy = e.changedTouches[0].clientY - startY;
+    if (Math.max(Math.abs(dx), Math.abs(dy)) < 30) return;
+    if (Math.abs(dx) > Math.abs(dy)) move(dx > 0 ? "right" : "left");
+    else move(dy > 0 ? "down" : "up");
+  });
+
+  document.getElementById("restart").addEventListener("click", startGame);
+  document.getElementById("overlay-restart").addEventListener("click", startGame);
+  keepGoingBtn.addEventListener("click", () => {
+    keepGoing = true;
+    overlay.hidden = true;
+  });
+
+  startGame();
+</script>
+</body>
+</html>
