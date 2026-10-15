@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>지오메트리 대시</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #111; }
+  canvas { display: block; width: 100vw; height: 100vh; touch-action: none; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+<script>
+// ===== 기본 설정 =====
+const canvas = document.getElementById('game');
+const ctx = canvas.getContext('2d');
+
+const SPEED = 8.6;      // 1초에 몇 칸 앞으로 가는지
+const GRAVITY = 80;     // 중력 (칸/초²)
+const JUMP = 20;        // 점프 힘 → 높이 2.5칸
+const PAD_JUMP = 28;    // 노란 점프대 힘 → 높이 약 4.9칸
+const HARD_AT = 400;    // 이 거리(칸)쯤 가면 난이도가 최고가 됨
+
+let W, H, T, groundY;   // 화면 크기, 한 칸 크기(px), 땅 높이(px)
+function resize() {
+  W = canvas.width = innerWidth;
+  H = canvas.height = innerHeight;
+  T = Math.min(H / 10, W / 14, 48);
+  groundY = H * 0.75;
+}
+addEventListener('resize', resize);
+resize();
+
+// ===== 맵 만들기 =====
+// 블록: 위에 올라설 수 있지만 옆으로 부딪히면 죽음
+// 가시: 닿으면 죽음
+// 점프대: 밟으면 높이 튕겨 오름
+const blocks = [], spikes = [], pads = [];
+const block = (x, y, w, h) => blocks.push({ x, y, w, h });
+const spike = (x, y = 0) => spikes.push({ x, y });
+const spikeRow = (x, n, y = 0) => { for (let i = 0; i < n; i++) spike(x + i, y); };
+const pad = (x, y = 0) => pads.push({ x, y });
+
+// 씨앗(seed)으로 정해지는 랜덤 → 같은 씨앗이면 같은 맵
+let seed = 1;
+function rand() {
+  seed = (seed + 0x6D2B79F5) | 0;
+  let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+  t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+}
+const randInt = (a, b) => a + Math.floor(rand() * (b - a + 1));   // a ~ b 사이 정수
+
+// 장애물 패턴 모음. 하나하나가 "땅에서 출발해서 통과할 수 있는" 모양이에요.
+// min = 이 난이도(0~1)부터 나옴, f(x) = x 위치에 패턴을 놓고 차지한 길이를 돌려줌
+const PATTERNS = [
+  { min: 0,    f: x => { spike(x); return 1; } },                                   // 가시 1개
+  { min: 0,    f: x => { spikeRow(x, 2); return 2; } },                             // 가시 2개
+  { min: 0,    f: x => { const w = randInt(1, 3); block(x, 0, w, 1); return w; } }, // 낮은 블록
+  { min: 0.1,  f: x => { block(x, 0, 2, 2); return 2; } },                          // 2칸 블록
+  { min: 0.1,  f: x => { block(x, 0, 2, 1); spikeRow(x + 2, 2); return 4; } },      // 블록 + 가시
+  { min: 0.15, f: x => { pad(x); block(x + 4, 0, 1, 2); spike(x + 4, 2); return 5; } }, // 점프대 + 가시벽
+  { min: 0.2,  f: x => { block(x, 0, 2, 1); block(x + 2, 0, 2, 2); block(x + 4, 0, 2, 3);
+                         spikeRow(x + 6, 3); return 9; } },                         // 계단
+  { min: 0.25, f: x => { spike(x); spike(x + 5); return 6; } },                     // 연속 점프
+  { min: 0.3,  f: x => { spikeRow(x, 3); return 3; } },                             // 가시 3개
+  { min: 0.35, f: x => { spike(x); block(x + 1, 0, 1, 1); return 2; } },            // 가시 + 블록
+  { min: 0.4,  f: x => { block(x, 0, 4, 1); spikeRow(x + 4, 2); block(x + 6, 0, 4, 2);
+                         spikeRow(x + 10, 2); block(x + 12, 0, 4, 3); spikeRow(x + 16, 3); return 19; } }, // 블록 오르기
+  { min: 0.5,  f: x => { block(x, 0, 3, 1); spike(x + 1, 1); return 3; } },         // 블록 위 가시
+];
+
+let genX = 0;   // 여기까지 맵이 만들어져 있음
+function newLevel(s) {
+  seed = s;
+  blocks.length = spikes.length = pads.length = 0;
+  genX = 12;    // 처음 12칸은 빈 땅
+}
+
+// 플레이어 앞쪽 limit 칸까지 맵을 이어서 만듦
+function generateUntil(limit) {
+  while (genX < limit) {
+    const d = Math.min(1, genX / HARD_AT);                 // 지금 난이도 0~1
+    const choices = PATTERNS.filter(pt => pt.min <= d);
+    const pt = choices[Math.floor(rand() * choices.length)];
+    genX += pt.f(genX);
+    genX += randInt(Math.round(7 - 3 * d), Math.round(10 - 4 * d));   // 다음 장애물까지 빈 땅 (멀리 갈수록 좁아짐)
+  }
+}
+
+// 지나간 장애물은 지워서 가볍게
+function cleanup() {
+  const keep = o => o.x + (o.w || 1) > p.x - 30;
+  for (const arr of [blocks, spikes, pads]) {
+    const kept = arr.filter(keep);
+    arr.length = 0;
+    arr.push(...kept);
+  }
+}
+
+// ===== 플레이어 상태 =====
+let p, attempts = 1, state = 'play', deadTimer = 0, best = 0;
+let particles = [];
+try { best = Number(localStorage.getItem('gd-best-m')) || 0; } catch (e) {}
+
+// 죽을 때마다 새로운 랜덤 맵으로 다시 시작
+function reset() {
+  p = { x: 0, y: 0, vy: 0, grounded: true, rot: 0 };
+  newLevel(Math.floor(Math.random() * 1e9));
+  generateUntil(60);
+  particles = [];
+  state = 'play';
+}
+reset();
+
+// ===== 입력 =====
+let held = false;
+function press(e) {
+  if (e) e.preventDefault();
+  held = true;
+}
+function release() { held = false; }
+addEventListener('keydown', e => {
+  if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) { if (!e.repeat) press(e); else e.preventDefault(); }
+});
+addEventListener('keyup', e => {
+  if (['Space', 'ArrowUp', 'KeyW'].includes(e.code)) release();
+});
+canvas.addEventListener('mousedown', press);
+addEventListener('mouseup', release);
+canvas.addEventListener('touchstart', press, { passive: false });
+addEventListener('touchend', release);
+
+// ===== 충돌 검사 =====
+const overlap = (ax, ay, aw, ah, bx, by, bw, bh) =>
+  ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by;
+
+function die() {
+  state = 'dead';
+  deadTimer = 0.9;
+  const dist = Math.floor(p.x);
+  if (dist > best) { best = dist; try { localStorage.setItem('gd-best-m', best); } catch (e) {} }
+  for (let i = 0; i < 40; i++) {
+    const a = Math.random() * Math.PI * 2, s = 3 + Math.random() * 10;
+    particles.push({ x: p.x + 0.5, y: p.y + 0.5, vx: Math.cos(a) * s, vy: Math.sin(a) * s,
+                     life: 0.8, size: 0.1 + Math.random() * 0.2, color: Math.random() < 0.5 ? '#7CFC00' : '#00E5FF' });
+  }
+}
+
+function step(dt) {
+  const prevY = p.y;
+  p.x += SPEED * dt;
+  p.vy -= GRAVITY * dt;
+  p.y += p.vy * dt;
+  p.grounded = false;
+
+  // 땅
+  if (p.y <= 0) { p.y = 0; p.vy = 0; p.grounded = true; }
+
+  // 블록: 위에서 내려오면 착지, 아니면 부딪혀서 죽음
+  for (const b of blocks) {
+    if (b.x > p.x + 2 || b.x + b.w < p.x - 1) continue;
+    const top = b.y + b.h;
+    if (overlap(p.x + 0.05, p.y, 0.9, 1, b.x, b.y, b.w, b.h)) {
+      if (p.vy <= 0 && prevY >= top - 0.35) {
+        p.y = top; p.vy = 0; p.grounded = true;
+      }
+    }
+    if (overlap(p.x + 0.15, p.y + 0.15, 0.7, 0.7, b.x, b.y, b.w, b.h)) { die(); return; }
+  }
+
+  // 가시 (판정은 실제 모양보다 조금 작게)
+  for (const s of spikes) {
+    if (s.x > p.x + 2 || s.x < p.x - 2) continue;
+    if (overlap(p.x + 0.1, p.y + 0.05, 0.8, 0.85, s.x + 0.35, s.y, 0.3, 0.5)) { die(); return; }
+  }
+
+  // 점프대
+  for (const pd of pads) {
+    if (!pd.used && overlap(p.x, p.y, 1, 1, pd.x + 0.1, pd.y, 0.8, 0.3)) {
+      pd.used = true;
+      p.vy = PAD_JUMP; p.grounded = false;
+      for (let i = 0; i < 12; i++) particles.push({ x: pd.x + 0.5, y: pd.y + 0.2, vx: (Math.random() - 0.5) * 4,
+        vy: 3 + Math.random() * 5, life: 0.5, size: 0.12, color: '#FFE600' });
+    }
+  }
+
+  // 점프 (누르고 있으면 착지하자마자 또 점프)
+  if (held && p.grounded) { p.vy = JUMP; p.grounded = false; }
+
+  // 회전: 공중에서는 돌고, 땅에 닿으면 가장 가까운 90도로 맞춤
+  if (p.grounded) {
+    const target = Math.round(p.rot / (Math.PI / 2)) * (Math.PI / 2);
+    p.rot += (target - p.rot) * Math.min(1, dt * 25);
+  } else {
+    p.rot += Math.PI * 2 * dt;
+  }
+
+  // 달릴 때 뒤로 날리는 가루
+  if (p.grounded && Math.random() < 0.5) {
+    particles.push({ x: p.x, y: p.y + 0.05, vx: -2 - Math.random() * 2, vy: Math.random() * 2,
+                     life: 0.35, size: 0.08, color: 'rgba(255,255,255,0.7)' });
+  }
+
+  // 앞쪽 맵이 모자라면 더 만들기
+  if (genX < p.x + 60) { generateUntil(p.x + 60); cleanup(); }
+}
+
+function updateParticles(dt) {
+  for (const q of particles) {
+    q.x += q.vx * dt; q.y += q.vy * dt; q.vy -= 15 * dt; q.life -= dt;
+  }
+  particles = particles.filter(q => q.life > 0);
+}
+
+// ===== 그리기 =====
+let camX = 0;
+const sx = wx => (wx - camX) * T;
+const sy = wy => groundY - wy * T;
+
+function hue() { return (200 + p.x * 1.2) % 360; }   // 앞으로 갈수록 배경 색이 바뀜
+
+function draw() {
+  camX = p.x - (W * 0.3) / T;
+  const h = hue();
+
+  // 배경
+  const g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, `hsl(${h},70%,35%)`);
+  g.addColorStop(1, `hsl(${h},70%,18%)`);
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, W, H);
+
+  // 뒤쪽 큰 네모 (천천히 움직여서 깊이감)
+  ctx.fillStyle = `hsla(${h},60%,60%,0.08)`;
+  const big = T * 3, off = (camX * T * 0.3) % big;
+  for (let x = -off - big; x < W + big; x += big) {
+    for (let y = 0; y < groundY; y += big) ctx.fillRect(x + 4, y + 4, big - 8, big - 8);
+  }
+
+  // 땅
+  ctx.fillStyle = `hsl(${h},70%,22%)`;
+  ctx.fillRect(0, groundY, W, H - groundY);
+  ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+  ctx.lineWidth = 2;
+  const goff = (camX * T) % T;
+  for (let x = -goff; x < W; x += T) {
+    ctx.beginPath(); ctx.moveTo(x, groundY); ctx.lineTo(x, H); ctx.stroke();
+  }
+  ctx.strokeStyle = '#fff';
+  ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(0, groundY); ctx.lineTo(W, groundY); ctx.stroke();
+
+  // 최고 기록 위치 표시 (점선)
+  const bxLine = sx(best);
+  if (best > 0 && bxLine > 0 && bxLine < W) {
+    ctx.strokeStyle = 'rgba(255,230,0,0.7)';
+    ctx.setLineDash([6, 6]);
+    ctx.beginPath(); ctx.moveTo(bxLine, 0); ctx.lineTo(bxLine, groundY); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#FFE600';
+    ctx.font = 'bold 14px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('최고 기록', bxLine, 70);
+  }
+
+  // 블록
+  for (const b of blocks) {
+    const x = sx(b.x), y = sy(b.y + b.h);
+    if (x > W || x + b.w * T < 0) continue;
+    ctx.fillStyle = '#000';
+    ctx.fillRect(x, y, b.w * T, b.h * T);
+    ctx.strokeStyle = '#fff';
+    ctx.lineWidth = 2;
+    for (let i = 0; i < b.w; i++) for (let j = 0; j < b.h; j++) {
+      ctx.strokeRect(x + i * T + 2, y + j * T + 2, T - 4, T - 4);
+    }
+  }
+
+  // 가시
+  for (const s of spikes) {
+    const x = sx(s.x), y = sy(s.y);
+    if (x > W || x + T < 0) continue;
+    ctx.beginPath();
+    ctx.moveTo(x + 2, y);
+    ctx.lineTo(x + T / 2, y - T * 0.9);
+    ctx.lineTo(x + T - 2, y);
+    ctx.closePath();
+    ctx.fillStyle = '#000'; ctx.fill();
+    ctx.strokeStyle = '#fff'; ctx.lineWidth = 2; ctx.stroke();
+  }
+
+  // 점프대
+  for (const pd of pads) {
+    const x = sx(pd.x), y = sy(pd.y);
+    if (x > W || x + T < 0) continue;
+    ctx.fillStyle = '#FFE600';
+    ctx.beginPath();
+    ctx.ellipse(x + T / 2, y, T * 0.42, T * 0.22, 0, Math.PI, 0);
+    ctx.fill();
+  }
+
+  // 가루
+  for (const q of particles) {
+    ctx.globalAlpha = Math.max(0, q.life * 2);
+    ctx.fillStyle = q.color;
+    ctx.fillRect(sx(q.x), sy(q.y), q.size * T, q.size * T);
+  }
+  ctx.globalAlpha = 1;
+
+  // 플레이어 (네모 큐브)
+  if (state !== 'dead') {
+    ctx.save();
+    ctx.translate(sx(p.x + 0.5), sy(p.y + 0.5));
+    ctx.rotate(p.rot);
+    const s = T;
+    ctx.fillStyle = '#7CFC00';
+    ctx.fillRect(-s / 2, -s / 2, s, s);
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 3;
+    ctx.strokeRect(-s / 2, -s / 2, s, s);
+    ctx.fillStyle = '#00E5FF';
+    ctx.fillRect(-s * 0.28, -s * 0.28, s * 0.56, s * 0.56);
+    ctx.strokeRect(-s * 0.28, -s * 0.28, s * 0.56, s * 0.56);
+    ctx.fillStyle = '#000';                                // 눈
+    ctx.fillRect(-s * 0.18, -s * 0.15, s * 0.1, s * 0.12);
+    ctx.fillRect(s * 0.08, -s * 0.15, s * 0.1, s * 0.12);
+    ctx.fillRect(-s * 0.15, s * 0.08, s * 0.3, s * 0.06); // 입
+    ctx.restore();
+  }
+
+  // 위쪽: 거리 + 난이도 바
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 28px sans-serif';
+  ctx.fillText(Math.floor(p.x) + 'm', W / 2, 36);
+  const diff = Math.min(1, p.x / HARD_AT);
+  const bw = Math.min(W * 0.3, 200), bx = (W - bw) / 2;
+  ctx.fillStyle = 'rgba(0,0,0,0.4)';
+  ctx.fillRect(bx, 46, bw, 6);
+  ctx.fillStyle = `hsl(${120 - diff * 120},90%,55%)`;   // 초록 → 빨강
+  ctx.fillRect(bx, 46, bw * diff, 6);
+
+  ctx.font = 'bold 16px sans-serif';
+  ctx.fillStyle = '#fff';
+  ctx.textAlign = 'left';
+  ctx.fillText('시도 ' + attempts, 16, 28);
+  ctx.fillText('최고 ' + best + 'm', 16, 50);
+
+  // 처음 화면 안내
+  if (attempts === 1 && p.x < 10 && state === 'play') {
+    ctx.textAlign = 'center';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.fillText('스페이스 / 클릭 / 터치 = 점프', W / 2, H * 0.35);
+    ctx.font = '16px sans-serif';
+    ctx.fillText('꾹 누르고 있으면 계속 점프해요', W / 2, H * 0.35 + 28);
+  }
+}
+
+// ===== 게임 루프 (1/240초씩 잘게 나눠 계산해서 판정이 정확함) =====
+let last = performance.now(), acc = 0;
+const DT = 1 / 240;
+function loop(now) {
+  const frame = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  if (state === 'play') {
+    acc += frame;
+    while (acc >= DT && state === 'play') { step(DT); acc -= DT; }
+  } else {
+    acc = 0;
+  }
+  if (state === 'dead') {
+    deadTimer -= frame;
+    if (deadTimer <= 0) { attempts++; reset(); }
+  }
+  updateParticles(frame);
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
