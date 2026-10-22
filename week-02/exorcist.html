@@ -15,7 +15,6 @@
   #after button:hover:not(:disabled){background:#1b4a4e}
   #after button:disabled{opacity:.35;cursor:default}
   #after button.on{background:#2a6b66;color:#fff}
-  .tabs{display:flex;gap:6px;margin:8px 0 6px}
   #line{font-style:italic;color:#bfe;margin:4px 0 8px;min-height:20px}
   #list{display:grid;grid-template-columns:1fr 1fr;gap:6px;max-height:170px;overflow:auto}
   .item{background:#0d2427;border:1px solid #2b5a5a;border-radius:8px;padding:6px 8px}
@@ -25,12 +24,7 @@
 <div id="wrap">
   <canvas id="c" width="960" height="540"></canvas>
   <div id="after" class="hide">
-    <div class="top"><h2>사후세계 · 저승 나루터</h2><div id="aPts"></div><button id="back">이승으로 돌아가기 (Esc)</button></div>
-    <div class="tabs">
-      <button data-n="reaper">저승사자 · 무기</button>
-      <button data-n="lib">망자 도서관 사서 · 스킬</button>
-      <button data-n="smith">영혼 대장장이 · 강화</button>
-    </div>
+    <div class="top"><h2 id="npcName">저승사자</h2><div id="aPts"></div><button id="back">대화 끝내기 (F / Esc)</button></div>
     <div id="line"></div>
     <div id="list"></div>
   </div>
@@ -97,6 +91,7 @@ const cam = { x: 0 };
 let P, pts, owned, weapon, wlv, learned, slots, skillCd, uniques, up;
 let mons, shots, effects, parts, texts, msgs;
 let spawnT, nextElite, eliteIdx, lastSave, hurtFlash, beat;
+let drops, natT;   // 바닥에 떨어진 포인트, 저절로 생기는 포인트 타이머
 
 function newGame() {
   P = { x: 140, y: 390, hp: 100, maxHp: 100, sp: 100, maxSp: 100, spRegen: 9, speed: 210,
@@ -107,6 +102,7 @@ function newGame() {
   learned = {}; slots = [null, null]; skillCd = {}; uniques = {}; up = { hp: 0, sp: 0 };
   mons = []; shots = []; effects = []; parts = []; texts = []; msgs = [];
   spawnT = 1.5; nextElite = 4200; eliteIdx = 0; lastSave = 0; hurtFlash = 0; beat = 0;
+  drops = []; natT = 4;
   cam.x = 0;
 }
 newGame();
@@ -139,7 +135,11 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 
 function onKey(code) {
   if (code === 'KeyM') toggleMute();
-  if (state === 'afterlife') { if (code === 'Escape') leaveAfterlife(); return; }
+  if (state === 'afterlife') {
+    if (talking) { if (code === 'Escape' || code === 'KeyF') closeTalk(); return; }
+    if (code === 'KeyF') { const n = nearAfter(); if (n === 'portal') leaveAfterlife(); else if (n) openTalk(n); }
+    return;
+  }
   if (state !== 'play') return;
   const n = ['Digit1', 'Digit2', 'Digit3', 'Digit4'].indexOf(code);
   if (n >= 0 && owned[W_ORDER[n]]) weapon = W_ORDER[n];
@@ -302,19 +302,70 @@ function hurt(m, base, nx, ny, kb) {
   burst(mcx(m), mcy(m), m.ghost ? '#bde0ff' : '#cfc6b0', 4, 90, m.ghost);
   if (m.hp <= 0) kill(m);
 }
+// ===== 떨어진 포인트 =====
+// 어둠 속에서 멀리 있는 몬스터의 눈빛과 똑같이 생겼다 (색, 크기, 눈 사이 거리, 높이, 깜빡임까지)
+//   혼불 = 좀비 눈 · 망자의 눈물 = 그림자 귀신 눈 · 원념 조각 = 해골 병사 눈
+const DROP_EYE = { soul: ['230,230,150', 1.8, 5], tear: ['255,255,255', 2, 8], grudge: ['255,70,60', 1.4, 6] };
+function dropPoint(type, amt, x, y) {
+  if (amt <= 0) return;
+  y = clamp(y, ROAD_TOP + 14, ROAD_BOT);
+  drops.push({ type, amt, hx: x, hy: y, x, y, seed: Math.random(), t: 0, life: 120 });
+}
+function updateDrops(dt) {
+  for (const d of drops) {
+    d.t += dt; d.life -= dt;
+    // 제자리에서 조금씩 두리번거리듯 움직임
+    d.x = d.hx + Math.sin(d.t * 0.6 + d.seed * 10) * 10 + Math.sin(d.t * 1.7 + d.seed * 3) * 3;
+    d.y = d.hy + Math.sin(d.t * 0.45 + d.seed * 5) * 6;
+    if (Math.hypot(P.x - d.x, P.y - d.y) < 34) {
+      d.life = 0;
+      pts[d.type] += d.amt;
+      floatText(d.x, d.y - 60, `+${d.amt} ${PT_NAMES[d.type]}`, PT_COLORS[d.type], 13);
+      sfx(d.type === 'soul' ? 660 : d.type === 'tear' ? 990 : 330, 0.15, 'sine', 0.07, d.type === 'grudge' ? 220 : 1320);
+    }
+  }
+  drops = drops.filter(d => d.life > 0);
+}
+// 눈 깜빡임 (몬스터와 포인트가 똑같이 깜빡인다)
+const blinking = seed => ((time * 0.4 + seed * 13) % 3.5) < 0.13;
+function eyeGlow(list, rgb, r, al) {
+  for (const [ex, ey] of list) {
+    const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, r * 5);
+    g.addColorStop(0, `rgba(${rgb},${0.9 * al})`); g.addColorStop(1, `rgba(${rgb},0)`);
+    ctx.fillStyle = g; ctx.fillRect(ex - r * 5, ey - r * 5, r * 10, r * 10);
+    ctx.fillStyle = `rgba(255,255,255,${0.9 * al})`; ctx.beginPath(); ctx.arc(ex, ey, r * 0.6, 0, 7); ctx.fill();
+  }
+}
+function drawDrops() {
+  for (const d of drops) {
+    if (blinking(d.seed)) continue;
+    const [rgb, r, gap] = DROP_EYE[d.type];
+    const x = d.x - cam.x, y = d.y - 46 + Math.sin(d.t * 1.3 + d.seed * 7) * 2;
+    const look = Math.sin(d.t * 0.5 + d.seed * 20) > 0 ? 1 : -1;   // 가끔 고개를 돌리듯 눈 위치가 바뀜
+    const al = Math.min(1, d.life / 3);
+    glows.push(() => eyeGlow([[x + look * 2 - gap / 2, y], [x + look * 2 + gap / 2, y]], rgb, r, al));
+  }
+}
+
 function kill(m) {
   if (m.dead) return;
   m.dead = true;
   const d = MON[m.type];
   const got = { ...d.drop };
   for (const [k, ch, n] of d.extra || []) if (Math.random() < ch) got[k] = (got[k] || 0) + n;
-  let oy = 0;
-  for (const k in got) { pts[k] += got[k]; floatText(m.x, m.y - 60 - oy, `+${got[k]} ${PT_NAMES[k]}`, PT_COLORS[k], 13); oy += 16; }
   if (d.unique) {
     if (!uniques[d.unique]) {
       uniques[d.unique] = true;
       msg(`특이 포인트: 「${UNIQUES[d.unique].name}」 획득! 사후세계 사서에게 기술을 배울 수 있다`, 4.5, '#ffd43b');
-    } else { pts.grudge += 2; floatText(m.x, m.y - 60 - oy, '+2 원념 조각', PT_COLORS.grudge, 13); }
+    } else got.grudge = (got.grudge || 0) + 2;
+  }
+  // 포인트는 바닥에 떨어지고, 직접 가서 주워야 한다 (혼불은 최대 3덩이로 나뉨)
+  for (const k in got) {
+    const n = k === 'soul' ? Math.min(3, got[k]) : 1;
+    for (let i = 0; i < n; i++) {
+      const amt = Math.floor(got[k] / n) + (i < got[k] % n ? 1 : 0);
+      dropPoint(k, amt, m.x + (Math.random() - 0.5) * 70, m.y + (Math.random() - 0.5) * 50);
+    }
   }
   burst(mcx(m), mcy(m), m.ghost ? '#cfe8ff' : '#a89f8c', m.elite ? 40 : 14, m.elite ? 220 : 130, m.ghost);
   if (m.ghost) for (let i = 0; i < 6; i++) parts.push({ x: mcx(m) + Math.random() * 20 - 10, y: mcy(m), vx: Math.random() * 20 - 10, vy: -40 - Math.random() * 60, t: 1.2, max: 1.2, color: '#e7f5ff', size: 3, glow: true });
@@ -362,7 +413,7 @@ function respawn() {
   const lost = Math.floor(pts.soul * 0.3);
   pts.soul -= lost;
   const eliteLeft = mons.some(m => m.elite && !m.dead);
-  mons = []; shots = []; effects = [];
+  mons = []; shots = []; effects = []; drops = [];
   P.x = lastSave ? lastSave * SAVE_GAP + SAVE_W / 2 : 140; P.y = 390;
   P.hp = P.maxHp; P.sp = P.maxSp; P.inv = 1.5; P.slow = 0; P.dash = null; P.kx = P.ky = 0;
   // 못 잡은 강한 몬스터는 다시 나온다
@@ -387,21 +438,51 @@ const LINES = {
            '원념 조각 하나에 비명 하나가 들어 있다네. 망치질할 때 들릴 거야.',
            '내 망치는 산 사람 물건도, 죽은 사람 물건도 가리지 않아.'],
 };
+// 사후세계는 걸어 다니는 곳: NPC 에게 다가가서 F 로 말을 건다
+const AW = 1500;                                   // 사후세계 너비
+const NPCS = [
+  { id: 'reaper', x: 430,  y: 330, name: '저승사자', job: '무기' },
+  { id: 'lib',    x: 820,  y: 300, name: '망자 도서관 사서', job: '스킬' },
+  { id: 'smith',  x: 1210, y: 345, name: '영혼 대장장이', job: '강화' },
+];
+const PORTAL = { x: 95, y: 370 };
+const AP = { x: 190, y: 400, f: 1 };
+let acam = 0, talking = null;
 function enterAfterlife() {
   state = 'afterlife'; mouse.down = false;
   P.hp = P.maxHp; P.sp = P.maxSp;
-  after.classList.remove('hide');
-  setNpc(npc);
+  AP.x = 190; AP.y = 400; AP.f = 1; acam = 0; talking = null;
+  after.classList.add('hide');
+  msg('사후세계 · 저승 나루터', 2.5, '#9ef0e4');
   sfx(220, 1.2, 'sine', 0.1, 440);
 }
-function leaveAfterlife() { after.classList.add('hide'); state = 'play'; msg('이승으로 돌아왔다', 1.5); }
-document.getElementById('back').onclick = leaveAfterlife;
-document.querySelectorAll('.tabs button').forEach(b => b.onclick = () => setNpc(b.dataset.n));
-function setNpc(n) {
-  npc = n;
+function leaveAfterlife() { closeTalk(); state = 'play'; msg('이승으로 돌아왔다', 1.5); }
+function openTalk(n) {
+  talking = n; npc = n;
+  const who = NPCS.find(o => o.id === n);
+  document.getElementById('npcName').textContent = `${who.name} · ${who.job}`;
   const L = LINES[n];
   document.getElementById('line').textContent = '“' + L[Math.floor(Math.random() * L.length)] + '”';
   renderShop();
+  after.classList.remove('hide');
+  sfx(330, 0.3, 'sine', 0.06, 440);
+}
+function closeTalk() { talking = null; after.classList.add('hide'); }
+document.getElementById('back').onclick = closeTalk;
+function nearAfter() {
+  for (const n of NPCS) if (Math.abs(AP.x - n.x) < 75 && Math.abs(AP.y - n.y) < 110) return n.id;
+  if (Math.hypot(AP.x - PORTAL.x, AP.y - PORTAL.y) < 85) return 'portal';
+  return null;
+}
+function updateAfterlife(dt) {
+  P.moving = false;
+  if (talking) return;
+  let mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), my = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
+  const len = Math.hypot(mx, my);
+  if (len) { mx /= len; my /= len; P.moving = true; P.walk += dt; if (mx) AP.f = mx > 0 ? 1 : -1; }
+  AP.x = clamp(AP.x + mx * 200 * dt, 40, AW - 40);
+  AP.y = clamp(AP.y + my * 160 * dt, 280, ROAD_BOT);
+  acam = clamp(AP.x - W / 2, 0, AW - W);
 }
 const priceStr = p => Object.entries(p).map(([k, v]) => `<span class="c-${k}">${PT_NAMES[k]} ${v}</span>`).join(' · ');
 const canPay = p => Object.entries(p).every(([k, v]) => pts[k] >= v);
@@ -409,7 +490,6 @@ const pay = p => { for (const k in p) pts[k] -= p[k]; };
 const upCost = lv => ({ grudge: 1 + lv, soul: 25 * (lv + 1) });
 const statCost = lv => ({ grudge: 2 + lv, soul: 30 + 15 * lv });
 function renderShop() {
-  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.n === npc));
   document.getElementById('aPts').innerHTML = ['soul', 'tear', 'grudge'].map(k => `<span class="c-${k}">${PT_NAMES[k]} ${pts[k]}</span>`).join(' &nbsp; ');
   const list = document.getElementById('list');
   let html = '';
@@ -478,7 +558,9 @@ function update(dt) {
   }
   const fr = Math.pow(0.002, dt); P.kx *= fr; P.ky *= fr;
   P.y = clamp(P.y, ROAD_TOP + 12, ROAD_BOT);
-  P.x = Math.max(P.x, cam.x + 20);
+  // 뒤쪽에 몬스터가 남아 있으면 뒤로 돌아갈 수 있고 카메라도 따라온다
+  const backOK = mons.some(m => !m.dead && m.x < P.x && P.x - m.x < 1600);
+  P.x = Math.max(P.x, backOK ? 20 : cam.x + 20);
 
   // 세이브 포인트
   const z = zoneAt(P.x);
@@ -487,6 +569,7 @@ function update(dt) {
     P.hp = Math.min(P.maxHp, P.hp + 14 * dt);
   }
   P.sp = Math.min(P.maxSp, P.sp + P.spRegen * (z ? 3 : 1) * dt);
+  if (backOK && P.x - cam.x < W * 0.3) cam.x = Math.max(0, P.x - W * 0.3);
   cam.x = Math.max(cam.x, P.x - W * 0.38);
 
   if (mouse.down) attack();
@@ -612,7 +695,8 @@ function update(dt) {
     if (P.shield > 0 && d < 95) { m.x = P.x - dx / d * 95; m.y = P.y - dy / d * 95; }
     // 해골 기사의 돌진은 몸으로 부딪친다
     if (m.type === 'knight' && m.cs === 'charge' && d < m.r + 18) damagePlayer(m.dmg, m);
-    if (m.x < cam.x - 600 && !m.wseg) m.dead = true;
+    // 아주 멀리 뒤처진 몬스터만 사라진다 (뒤로 돌아가서 잡을 수 있게)
+    if (m.x < cam.x - 1400 && !m.wseg) m.dead = true;
   }
   // 좀비·해골끼리는 겹치지 않음
   for (let i = 0; i < mons.length; i++) for (let j = i + 1; j < mons.length; j++) {
@@ -638,6 +722,16 @@ function update(dt) {
     }
   }
   shots = shots.filter(s => s.t > 0);
+  // 포인트: 줍기, 그리고 가끔 길에 저절로 떨어져 있는 것
+  updateDrops(dt);
+  if (!z) {
+    natT -= dt;
+    if (natT <= 0) {
+      natT = 5 + Math.random() * 6;
+      const x = cam.x + W + 60 + Math.random() * 300, r = Math.random();
+      if (!inZoneWide(x, 40)) dropPoint(r < 0.75 ? 'soul' : r < 0.93 ? 'tear' : 'grudge', r < 0.75 ? 1 + Math.floor(Math.random() * 3) : 1, x, ROAD_TOP + 20 + Math.random() * (ROAD_BOT - ROAD_TOP - 20));
+    }
+  }
   effects.forEach(e => e.t -= dt); effects = effects.filter(e => e.t > 0);
   parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 40 * dt; p.t -= dt; }); parts = parts.filter(p => p.t > 0);
   texts.forEach(t => { t.y -= 30 * dt; t.t -= dt; }); texts = texts.filter(t => t.t > 0);
@@ -804,7 +898,7 @@ let texts2 = [];
 // ===== 그리기: 캐릭터 =====
 function shadow(x, y, r) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.35, 0, 0, 7); ctx.fill(); }
 function drawPlayer(x, y) {
-  const a = state === 'play' ? aimAngle() : 0;
+  const a = state === 'play' ? aimAngle() : (state === 'afterlife' && AP.f < 0 ? Math.PI : 0);
   const f = Math.cos(a) >= 0 ? 1 : -1;
   const step = P.moving ? Math.sin(P.walk * 11) : 0;
   shadow(x, y, 16);
@@ -981,15 +1075,10 @@ function drawMonster(m) {
 // 눈은 어둠 위에 빛나게 그린다 (공격 준비 중에는 더 크게 빛남)
 function eyes(m, list, rgb, r) {
   const al = m.fade;
-  if (m.atk && m.atk.phase === 'wind') r *= 1.7;
-  glows.push(() => {
-    for (const [ex, ey] of list) {
-      const g = ctx.createRadialGradient(ex, ey, 0, ex, ey, r * 5);
-      g.addColorStop(0, `rgba(${rgb},${0.9 * al})`); g.addColorStop(1, `rgba(${rgb},0)`);
-      ctx.fillStyle = g; ctx.fillRect(ex - r * 5, ey - r * 5, r * 10, r * 10);
-      ctx.fillStyle = `rgba(255,255,255,${0.9 * al})`; ctx.beginPath(); ctx.arc(ex, ey, r * 0.6, 0, 7); ctx.fill();
-    }
-  });
+  const wind = m.atk && m.atk.phase === 'wind';
+  if (wind) r *= 1.7;
+  else if (blinking(m.seed)) return;
+  glows.push(() => eyeGlow(list, rgb, r, al));
 }
 
 // ===== 그리기: 효과 =====
@@ -1066,6 +1155,7 @@ function drawWorld() {
   const list = mons.map(m => ({ y: m.y, f: () => drawMonster(m) }));
   list.push({ y: P.y, f: () => drawPlayer(P.x - cam.x, P.y) });
   list.sort((a, b) => a.y - b.y).forEach(o => o.f());
+  drawDrops();
   drawEffects();
   const eliteAlive = mons.some(m => m.elite);
   drawDarkness(eliteAlive);
@@ -1195,60 +1285,123 @@ function drawDead() {
   ctx.fillText(`클릭하면 마지막 등불에서 다시 시작 (혼불 30% 잃음)`, W / 2, 300);
 }
 
-// ===== 사후세계 배경 =====
+// ===== 사후세계 그리기 =====
+function drawNpc(id, near) {
+  // (0,0) 이 발 위치, 1.3배 크기로 그림
+  if (id === 'reaper') {
+    ctx.fillStyle = '#050507'; ctx.beginPath(); ctx.moveTo(-18, 0); ctx.lineTo(18, 0); ctx.lineTo(11, -48); ctx.lineTo(-11, -48); ctx.fill();
+    ctx.fillStyle = '#d7dde0'; ctx.beginPath(); ctx.arc(0, -56, 9, 0, 7); ctx.fill();
+    ctx.fillStyle = '#050507'; ctx.beginPath(); ctx.ellipse(0, -62, 21, 4.5, 0, 0, 7); ctx.fill(); ctx.fillRect(-7, -77, 14, 15);
+    ctx.fillStyle = '#300'; ctx.fillRect(-4, -57, 2, 2); ctx.fillRect(2, -57, 2, 2);
+    // 명부 (두루마리)
+    ctx.fillStyle = '#d8c9a3'; ctx.fillRect(14, -34, 6, 18); ctx.fillStyle = '#5a3d1e'; ctx.fillRect(13, -36, 8, 3); ctx.fillRect(13, -17, 8, 3);
+  } else if (id === 'lib') {
+    ctx.globalAlpha = 0.75 + 0.15 * Math.sin(time * 2);
+    ctx.fillStyle = '#9ccfc8'; ctx.beginPath(); ctx.moveTo(-14, -4); ctx.lineTo(14, -4); ctx.lineTo(8, -46); ctx.lineTo(-8, -46); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, -54, 8, 0, 7); ctx.fill();
+    ctx.fillStyle = '#2b4a47'; ctx.fillRect(-9, -61, 18, 4);
+    ctx.globalAlpha = 1;
+    ['#6b3a3a', '#3a4a6b', '#4f6b3a', '#6b5a3a'].forEach((c, k) => { ctx.fillStyle = c; ctx.fillRect(18, -8 - k * 7, 22, 6); });
+    // 공중에 떠 있는 책장
+    ctx.fillStyle = '#1d2f30'; ctx.fillRect(-60, -110, 120, 46);
+    for (let k = 0; k < 9; k++) { ctx.fillStyle = ['#6b3a3a', '#3a4a6b', '#4f6b3a', '#6b5a3a'][k % 4]; ctx.fillRect(-55 + k * 12, -106 + (k % 3) * 2, 9, 18 - (k % 3) * 2); ctx.fillRect(-55 + k * 12, -84, 9, 16); }
+  } else {
+    ctx.fillStyle = '#25343a'; ctx.beginPath(); ctx.moveTo(-24, 0); ctx.lineTo(24, 0); ctx.lineTo(18, -54); ctx.lineTo(-18, -54); ctx.fill();
+    ctx.fillStyle = '#4f6f72'; ctx.beginPath(); ctx.arc(0, -64, 12, 0, 7); ctx.fill();
+    ctx.fillStyle = '#ff9f43'; ctx.fillRect(-6, -66, 4, 3); ctx.fillRect(2, -66, 4, 3);
+    // 망치 든 팔 (가끔 내리침)
+    const hm = Math.sin(time * 3) > 0.7 ? 0.9 : -0.4;
+    ctx.save(); ctx.translate(16, -44); ctx.rotate(hm);
+    ctx.fillStyle = '#25343a'; ctx.fillRect(0, -3, 20, 7); ctx.fillStyle = '#3d2b1f'; ctx.fillRect(18, -2, 4, 22); ctx.fillStyle = '#666'; ctx.fillRect(13, 18, 14, 8);
+    ctx.restore();
+    ctx.fillStyle = '#1b1f22'; ctx.fillRect(26, -18, 34, 10); ctx.fillRect(36, -8, 14, 8);
+    const fg = ctx.createRadialGradient(43, -20, 0, 43, -20, 22); fg.addColorStop(0, `rgba(255,140,60,${0.5 + 0.2 * Math.sin(time * 7)})`); fg.addColorStop(1, 'rgba(255,140,60,0)');
+    ctx.fillStyle = fg; ctx.fillRect(21, -42, 44, 44);
+  }
+}
 function drawAfterlife() {
+  glows = []; lights = [];
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, '#061517'); g.addColorStop(0.5, '#0e2a2c'); g.addColorStop(1, '#081a1b');
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  // 영혼의 강
-  ctx.fillStyle = '#0b3a3d'; ctx.fillRect(0, 150, W, 40);
-  for (let i = 0; i < 40; i++) {
-    const x = ((hash(i, 60) * W + time * (20 + hash(i, 61) * 30)) % W), y = 155 + hash(i, 62) * 30;
-    ctx.fillStyle = `rgba(180,255,240,${0.3 + 0.3 * Math.sin(time * 2 + i)})`; ctx.beginPath(); ctx.arc(x, y, 1.5 + hash(i, 63) * 2, 0, 7); ctx.fill();
-  }
-  // 떠다니는 등불
-  for (let i = 0; i < 12; i++) {
-    const x = hash(i, 70) * W, y = 40 + hash(i, 71) * 80 + Math.sin(time + i) * 6;
+  // 떠다니는 등불 (멀리)
+  for (let i = 0; i < 24; i++) {
+    const x = hash(i, 70) * (AW + 200) - acam * 0.4 - 100, y = 30 + hash(i, 71) * 90 + Math.sin(time + i) * 6;
     const lg = ctx.createRadialGradient(x, y, 0, x, y, 16); lg.addColorStop(0, 'rgba(160,255,235,0.6)'); lg.addColorStop(1, 'rgba(160,255,235,0)');
     ctx.fillStyle = lg; ctx.fillRect(x - 16, y - 16, 32, 32);
   }
-  ctx.fillStyle = '#0a2224'; ctx.fillRect(0, 190, W, 60);
-  // NPC 세 명
-  const sel = { reaper: 200, lib: 480, smith: 760 };
-  for (const n in sel) {
-    const x = sel[n], y = 232, on = npc === n;
-    if (on) { const hg = ctx.createRadialGradient(x, y - 30, 0, x, y - 30, 70); hg.addColorStop(0, 'rgba(120,255,230,0.25)'); hg.addColorStop(1, 'rgba(120,255,230,0)'); ctx.fillStyle = hg; ctx.fillRect(x - 70, y - 100, 140, 140); }
-    if (n === 'reaper') {
-      ctx.fillStyle = '#050507'; ctx.beginPath(); ctx.moveTo(x - 18, y); ctx.lineTo(x + 18, y); ctx.lineTo(x + 11, y - 48); ctx.lineTo(x - 11, y - 48); ctx.fill();
-      ctx.fillStyle = '#d7dde0'; ctx.beginPath(); ctx.arc(x, y - 56, 9, 0, 7); ctx.fill();
-      ctx.fillStyle = '#050507'; ctx.beginPath(); ctx.ellipse(x, y - 62, 21, 4.5, 0, 0, 7); ctx.fill(); ctx.fillRect(x - 7, y - 77, 14, 15);
-      ctx.fillStyle = '#300'; ctx.fillRect(x - 4, y - 57, 2, 2); ctx.fillRect(x + 2, y - 57, 2, 2);
-    } else if (n === 'lib') {
-      ctx.globalAlpha = 0.75 + 0.15 * Math.sin(time * 2);
-      ctx.fillStyle = '#9ccfc8'; ctx.beginPath(); ctx.moveTo(x - 14, y - 4); ctx.lineTo(x + 14, y - 4); ctx.lineTo(x + 8, y - 46); ctx.lineTo(x - 8, y - 46); ctx.fill();
-      ctx.beginPath(); ctx.arc(x, y - 54, 8, 0, 7); ctx.fill();
-      ctx.fillStyle = '#2b4a47'; ctx.fillRect(x - 9, y - 61, 18, 4);
-      ctx.globalAlpha = 1;
-      ['#6b3a3a', '#3a4a6b', '#4f6b3a', '#6b5a3a'].forEach((c, k) => { ctx.fillStyle = c; ctx.fillRect(x + 18, y - 8 - k * 7, 22, 6); });
-    } else {
-      ctx.fillStyle = '#25343a'; ctx.beginPath(); ctx.moveTo(x - 24, y); ctx.lineTo(x + 24, y); ctx.lineTo(x + 18, y - 54); ctx.lineTo(x - 18, y - 54); ctx.fill();
-      ctx.fillStyle = '#4f6f72'; ctx.beginPath(); ctx.arc(x, y - 64, 12, 0, 7); ctx.fill();
-      ctx.fillStyle = '#ff9f43'; ctx.fillRect(x - 6, y - 66, 4, 3); ctx.fillRect(x + 2, y - 66, 4, 3);
-      ctx.fillStyle = '#1b1f22'; ctx.fillRect(x + 26, y - 18, 34, 10); ctx.fillRect(x + 36, y - 8, 14, 8);
-      const fg = ctx.createRadialGradient(x + 43, y - 20, 0, x + 43, y - 20, 22); fg.addColorStop(0, `rgba(255,140,60,${0.5 + 0.2 * Math.sin(time * 7)})`); fg.addColorStop(1, 'rgba(255,140,60,0)');
-      ctx.fillStyle = fg; ctx.fillRect(x + 21, y - 42, 44, 44);
-    }
-    ctx.textAlign = 'center'; ctx.font = `${on ? 'bold ' : ''}13px ${FONT}`; ctx.fillStyle = on ? '#bff' : '#7aa';
-    ctx.fillText({ reaper: '저승사자', lib: '망자 도서관 사서', smith: '영혼 대장장이' }[n], x, y + 4 - 92);
+  // 강 건너편 기와 지붕들
+  ctx.fillStyle = '#0a1f22';
+  for (let i = 0; i < 8; i++) {
+    const x = i * 260 + 60 - acam * 0.55, w = 90 + hash(i, 80) * 60, h = 30 + hash(i, 81) * 25;
+    ctx.fillRect(x - w / 2 + 10, 150 - h, w - 20, h);
+    ctx.beginPath(); ctx.moveTo(x - w / 2 - 8, 150 - h); ctx.quadraticCurveTo(x, 150 - h - 26, x + w / 2 + 8, 150 - h); ctx.fill();
   }
+  // 영혼의 강
+  ctx.fillStyle = '#0b3a3d'; ctx.fillRect(0, 150, W, 50);
+  for (let i = 0; i < 60; i++) {
+    const x = ((hash(i, 60) * (AW + 300) + time * (20 + hash(i, 61) * 30) - acam * 0.8) % (AW + 300) + AW + 300) % (AW + 300) - 150, y = 155 + hash(i, 62) * 40;
+    ctx.fillStyle = `rgba(180,255,240,${0.3 + 0.3 * Math.sin(time * 2 + i)})`; ctx.beginPath(); ctx.arc(x, y, 1.5 + hash(i, 63) * 2, 0, 7); ctx.fill();
+  }
+  // 나루터 땅
+  const gg = ctx.createLinearGradient(0, 200, 0, H);
+  gg.addColorStop(0, '#0d2a2c'); gg.addColorStop(1, '#071718');
+  ctx.fillStyle = gg; ctx.fillRect(0, 200, W, H - 200);
+  ctx.fillStyle = '#123536'; ctx.fillRect(0, 200, W, 6);
+  // 바닥의 돌 등불
+  for (let i = 0; i < 9; i++) {
+    const x = 170 + i * 170 - acam, y = 262;
+    if (x < -40 || x > W + 40) continue;
+    ctx.fillStyle = '#29393b'; ctx.fillRect(x - 5, y - 30, 10, 30); ctx.fillRect(x - 12, y - 42, 24, 12); ctx.fillRect(x - 15, y - 46, 30, 5);
+    const lg = ctx.createRadialGradient(x, y - 36, 0, x, y - 36, 26); lg.addColorStop(0, 'rgba(160,255,235,0.55)'); lg.addColorStop(1, 'rgba(160,255,235,0)');
+    ctx.fillStyle = lg; ctx.fillRect(x - 26, y - 62, 52, 52);
+  }
+  // 이승으로 가는 문
+  {
+    const x = PORTAL.x - acam, y = PORTAL.y;
+    for (let k = 3; k >= 0; k--) {
+      const pg = ctx.createRadialGradient(x, y - 50, 0, x, y - 50, 60 - k * 8);
+      pg.addColorStop(0, `rgba(255,190,120,${0.25 + 0.1 * Math.sin(time * 3 + k)})`); pg.addColorStop(1, 'rgba(255,150,80,0)');
+      ctx.fillStyle = pg; ctx.beginPath(); ctx.ellipse(x, y - 50, 30 - k * 3, 58 - k * 6, 0, 0, 7); ctx.fill();
+    }
+    ctx.strokeStyle = 'rgba(255,200,140,0.7)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.ellipse(x, y - 50, 30, 58, 0, 0, 7); ctx.stroke();
+    ctx.textAlign = 'center'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#ffcf9a'; ctx.fillText('이승으로', x, y - 116);
+  }
+  // NPC 와 나를 앞뒤 순서대로
+  const near = talking ? null : nearAfter();
+  const list = NPCS.map(n => ({ y: n.y, f: () => {
+    const x = n.x - acam, on = near === n.id || talking === n.id;
+    shadow(x, n.y, 22);
+    if (on) { const hg = ctx.createRadialGradient(x, n.y - 40, 0, x, n.y - 40, 90); hg.addColorStop(0, 'rgba(120,255,230,0.22)'); hg.addColorStop(1, 'rgba(120,255,230,0)'); ctx.fillStyle = hg; ctx.fillRect(x - 90, n.y - 130, 180, 180); }
+    ctx.save(); ctx.translate(x, n.y); ctx.scale(1.3, 1.3); drawNpc(n.id); ctx.restore();
+    ctx.textAlign = 'center'; ctx.font = `${on ? 'bold ' : ''}13px ${FONT}`; ctx.fillStyle = on ? '#bff' : '#7aa';
+    ctx.fillText(`${n.name} · ${n.job}`, x, n.y - (n.id === 'lib' ? 160 : 112));
+  } }));
+  list.push({ y: AP.y, f: () => drawPlayer(AP.x - acam, AP.y) });
+  list.sort((a, b) => a.y - b.y).forEach(o => o.f());
+  // 안내
+  if (near && !talking) {
+    const t = near === 'portal' ? PORTAL : NPCS.find(n => n.id === near);
+    ctx.textAlign = 'center'; ctx.font = `bold 15px ${FONT}`;
+    ctx.globalAlpha = 0.7 + 0.3 * Math.sin(time * 4); ctx.fillStyle = near === 'portal' ? '#ffcf9a' : '#9ef0e4';
+    ctx.fillText(near === 'portal' ? '[F] 이승으로 돌아가기' : '[F] 말 걸기', t.x - acam, t.y + 26); ctx.globalAlpha = 1;
+  }
+  // 포인트와 조작 안내
+  ctx.textAlign = 'right'; ctx.font = `bold 14px ${FONT}`;
+  let yy = 26;
+  for (const k of ['soul', 'tear', 'grudge']) { ctx.fillStyle = PT_COLORS[k]; ctx.fillText(`${PT_NAMES[k]} ${pts[k]}`, W - 20, yy); yy += 20; }
+  ctx.textAlign = 'left'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#7fbfb6';
+  ctx.fillText('WASD 이동 · NPC 앞에서 F 말 걸기 · 왼쪽 끝 문으로 이승에 돌아감', 20, 26);
+  drawMsgs();
 }
 
 // ===== 반복 =====
 let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
-  if (state === 'afterlife') time += dt; else update(dt);
-  if (state === 'afterlife') drawAfterlife();
+  update(dt);
+  if (state === 'afterlife') { updateAfterlife(dt); drawAfterlife(); }
   else {
     drawWorld();
     if (state === 'play' || state === 'dead') drawHUD();
