@@ -1,3 +1,4 @@
+<meta charset="utf-8">
 <title>저승길 퇴마록</title>
 <style>
   :root{color-scheme:dark}
@@ -499,13 +500,29 @@ function update(dt) {
     const sp = m.speed * (m.slow > 0 ? 0.45 : 1);
     let vx = dx / d * sp, vy = dy / d * sp;
     if (m.ghost) m.hover = 14 + Math.sin(m.t * 2 + m.seed * 9) * 6;
+    if (z) {
+      // 내가 세이브 포인트 안에 있으면 몬스터는 쫓아오지 않고 결계 밖을 제멋대로 떠돈다
+      if (m.vanish != null) m.vanish = null;
+      if (m.type === 'knight') { m.cs = 'walk'; m.ct = 3; }
+      m.wt = (m.wt ?? 0) - dt;
+      if (m.wt <= 0 || m.wx == null) {
+        const sx = z * SAVE_GAP;
+        m.wt = 2 + Math.random() * 2.5;
+        m.wx = m.x < sx + SAVE_W / 2 ? sx - 70 - Math.random() * 420 : sx + SAVE_W + 70 + Math.random() * 420;
+        m.wy = ROAD_TOP + 20 + Math.random() * (ROAD_BOT - ROAD_TOP - 20);
+      }
+      const wdx = m.wx - m.x, wdy = m.wy - m.y, wd = Math.hypot(wdx, wdy) || 1;
+      const ws = wd < 8 ? 0 : m.speed * 0.5;
+      vx = wdx / wd * ws; vy = wdy / wd * ws;
+    } else m.wx = null;
     if (m.type === 'wisp') vy += Math.sin(m.t * 3 + m.seed * 6) * 50;
-    if (m.type === 'shade') {
+    if (z) { /* 떠도는 중에는 특수 행동 없음 */ }
+    else if (m.type === 'shade') {
       m.st = (m.st ?? 1) - dt;
       if (m.st <= 0) { m.dashing = !m.dashing; m.st = m.dashing ? 0.5 : 1.1; }
       const f = m.dashing ? 2.6 : 0.35; vx *= f; vy *= f;
     }
-    if (m.type === 'wongwi') {
+    if (m.type === 'wongwi' && !z) {
       // 사라졌다가 내 근처에 다시 나타남 (천천히)
       m.tp = (m.tp ?? 4) - dt;
       if (m.tp <= 0 && m.vanish == null) m.vanish = 0.8;
@@ -525,7 +542,7 @@ function update(dt) {
         if (d < 240) { P.slow = 2; damagePlayer(6, null); msg('원귀의 비명에 몸이 굳는다…', 1.5, '#ff8fa3'); }
       }
     }
-    if (m.type === 'knight') {
+    if (m.type === 'knight' && !z) {
       m.cs = m.cs || 'walk'; m.ct = (m.ct ?? 5) - dt;
       if (m.cs === 'walk' && m.ct <= 0) { m.cs = 'aim'; m.ct = 0.9; m.dir = Math.atan2(dy, dx); }
       else if (m.cs === 'aim') { vx = vy = 0; if (m.ct <= 0) { m.cs = 'charge'; m.ct = 0.7; sfx(80, 0.5, 'sawtooth', 0.08, 40); } }
