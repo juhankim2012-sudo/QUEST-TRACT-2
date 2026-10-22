@@ -130,7 +130,7 @@ test('6. 떨어진 포인트를 직접 주워야 함', `
   check(nat >= 5, '60초 동안 길에 저절로 생긴 포인트: ' + nat + '개');
 `);
 
-test('7. 눈빛: 어두우면 빛나고, 밝으면 사라짐', `
+test('7. 눈빛: 몬스터는 밝으면 사라지고, 포인트는 언제나 멀리 있는 몬스터 눈빛', `
   let glow = [], icon = 0;
   eyeGlow = (l, rgb, r, al) => glow.push(al);
   ptIcon = () => icon++;
@@ -147,8 +147,8 @@ test('7. 눈빛: 어두우면 빛나고, 밝으면 사라짐', `
   check(at(40, 'mon') === 0, '바로 옆 좀비는 눈빛 없음');
   check(at(600, 'mon') === 1, '멀리 어둠 속 좀비는 눈빛이 완전히 빛남');
   check(at(600, 'mon') === at(600, 'drop'), '멀리서는 좀비 눈빛과 포인트 눈빛이 똑같음');
-  at(40, 'drop'); check(icon > 0, '가까이 가면 포인트의 진짜 모양이 보임');
-  at(600, 'drop'); check(icon === 0, '멀리서는 포인트의 진짜 모양이 안 보임');
+  check([40, 120, 200, 300, 600].every(d => at(d, 'drop') === 1), '포인트는 바로 옆에서도 멀리 있는 몬스터 눈빛 그대로');
+  at(40, 'drop'); check(icon === 0, '가까이 가도 포인트의 진짜 모양은 안 보임');
   mons = []; const m = spawnMonster('zombie', P.x + 40, P.y); m.fade = 1; m.atk = { phase: 'wind', t: 0.3, ang: 0 };
   glow = []; drawWorld(); check(glow[0] === 1, '공격 준비 중인 좀비는 가까워도 눈이 번뜩임');
 `);
