@@ -109,6 +109,31 @@ test('4. 사후세계를 걸어 다니며 NPC 에게 말 걸기', `
   onKey('KeyF'); check(state === 'play', '왼쪽 끝 문에서 F → 이승으로 돌아옴');
 `);
 
+test('4-2. 사후세계 마을: 평범한 시민들과도 이야기할 수 있음', `
+  reset(); enterAfterlife();
+  check(CITIZENS.length >= 8, '마을에 시민이 ' + CITIZENS.length + '명 있음');
+  let talked = 0, bad = [];
+  for (const c of CITIZENS) {
+    AP.x = c.x; AP.y = c.y; chat = null;
+    const n = nearAfter();
+    if (n !== c) { bad.push(c.name + '(가까이 가도 말 걸기 안 됨)'); continue; }
+    onKey('KeyF');
+    if (!chat || chat.c !== c) { bad.push(c.name + '(F 로 대화 시작 안 됨)'); continue; }
+    let lines = 1; for (let k = 0; k < 10 && chat; k++) { onKey('KeyF'); if (chat) lines++; }
+    if (chat !== null || lines !== c.lines.length) { bad.push(c.name + '(대사가 끝까지 안 넘어감)'); continue; }
+    talked++;
+  }
+  check(talked === CITIZENS.length, '모든 시민에게 F 로 말 걸고, F 로 대사를 끝까지 넘김' + (bad.length ? ' — 문제: ' + bad.join(', ') : ''));
+  const c = CITIZENS[1]; AP.x = c.x; AP.y = c.y; onKey('KeyF'); onKey('Escape');
+  check(chat === null, 'Esc 로 대화를 바로 끝낼 수 있음');
+  AP.x = c.x; AP.y = c.y; onKey('KeyF'); const ax = AP.x; keys.KeyD = true; run(1); keys.KeyD = false;
+  check(AP.x === ax, '시민과 대화 중에는 안 움직임'); chat = null;
+  const xs = CITIZENS.map(c => c.x); run(8);
+  check(CITIZENS.filter((c, i) => Math.abs(c.x - xs[i]) > 1).length >= 4, '시민들이 마을을 어슬렁거림');
+  check(CITIZENS.every(c => Math.abs(c.x - c.hx) <= c.range + 1), '시민들이 자기 자리에서 멀리 안 감');
+  for (const n of NPCS) check(CITIZENS.every(c => Math.abs(c.hx - n.x) - c.range > 75), n.name + ' 근처에 시민이 없어서 상점 말 걸기를 가리지 않음');
+`);
+
 test('5. 뒤에 몬스터가 있으면 카메라가 뒤로 감', `
   reset(); let c = cam.x; keys.KeyA = true; run(2); keys.KeyA = false;
   check(cam.x === c, '몬스터가 없으면 카메라가 뒤로 안 감');
