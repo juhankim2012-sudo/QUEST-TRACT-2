@@ -917,7 +917,15 @@ let texts2 = [];
 // ===== 그리기: 캐릭터 =====
 function shadow(x, y, r) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.35, 0, 0, 7); ctx.fill(); }
 function drawPlayer(x, y) {
-  const a = state === 'play' ? aimAngle() : (state === 'afterlife' && AP.f < 0 ? Math.PI : 0);
+  // 보는 방향: 공격할 땐 마우스 쪽, 왼쪽·오른쪽으로 걸을 땐 걷는 쪽, 가만히 있을 땐 마지막에 보던 쪽
+  let a;
+  if (state === 'play') {
+    const attacking = mouse.down || P.atkCd > 0;
+    const mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    if (attacking) P.lookA = aimAngle();
+    else if (mx) P.lookA = mx > 0 ? 0 : Math.PI;
+    a = P.lookA ?? 0;
+  } else a = state === 'afterlife' && AP.f < 0 ? Math.PI : 0;
   const f = Math.cos(a) >= 0 ? 1 : -1;
   const step = P.moving ? Math.sin(P.walk * 11) : 0;
   shadow(x, y, 16);
