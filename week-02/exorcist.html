@@ -451,7 +451,7 @@ const AP = { x: 190, y: 400, f: 1 };
 let acam = 0, talking = null;
 function enterAfterlife() {
   state = 'afterlife'; mouse.down = false;
-  P.hp = P.maxHp; P.sp = P.maxSp;
+  P.sp = P.maxSp;   // 체력은 사후세계에서 안 찬다 (세이브 포인트에서 2/3 만)
   AP.x = 190; AP.y = 400; AP.f = 1; acam = 0; talking = null;
   after.classList.add('hide');
   msg('사후세계 · 저승 나루터', 2.5, '#9ef0e4');
@@ -521,7 +521,7 @@ function renderShop() {
       html += `<div class="item"><b>${WEAPONS[id].name} +${lv}</b><small>공격력 ${Math.round(weaponDmg(id))} → 강화하면 +25%</small><div class="row">${row}</div></div>`;
     });
     const hc = statCost(up.hp), sc = statCost(up.sp);
-    html += `<div class="item"><b>혼백 단련 (체력) Lv${up.hp}</b><small>최대 체력 ${P.maxHp} → +20</small><div class="row">${priceStr(hc)} ${btn('강화', () => { pay(hc); up.hp++; P.maxHp += 20; P.hp = P.maxHp; }, !canPay(hc))}</div></div>`;
+    html += `<div class="item"><b>혼백 단련 (체력) Lv${up.hp}</b><small>최대 체력 ${P.maxHp} → +20</small><div class="row">${priceStr(hc)} ${btn('강화', () => { pay(hc); up.hp++; P.maxHp += 20; P.hp += 20; }, !canPay(hc))}</div></div>`;
     html += `<div class="item"><b>영력 단련 Lv${up.sp}</b><small>최대 영력 ${P.maxSp} → +20, 회복 속도 +2</small><div class="row">${priceStr(sc)} ${btn('강화', () => { pay(sc); up.sp++; P.maxSp += 20; P.spRegen += 2; P.sp = P.maxSp; }, !canPay(sc))}</div></div>`;
   }
   list.innerHTML = html;
@@ -566,8 +566,15 @@ function update(dt) {
   // 세이브 포인트
   const z = zoneAt(P.x);
   if (z) {
-    if (z > lastSave) { lastSave = z; msg(`세이브 포인트 · 저승 등불 ${z}번째`, 2.5, '#9ef0e4'); sfx(520, 0.8, 'sine', 0.08, 780); }
-    P.hp = Math.min(P.maxHp, P.hp + 14 * dt);
+    if (z > lastSave) {
+      lastSave = z;
+      // 세이브 포인트에 처음 왔을 때 한 번만, 비어 있는 체력의 2/3 만 채운다 (다 차면 피할 생각을 안 하게 돼서)
+      const heal = Math.round((P.maxHp - P.hp) * 2 / 3);
+      P.hp = Math.min(P.maxHp, P.hp + heal);
+      msg(`세이브 포인트 · 저승 등불 ${z}번째`, 2.5, '#9ef0e4');
+      if (heal > 0) floatText(P.x, P.y - 70, `체력 +${heal}`, '#ff8a9a', 15);
+      sfx(520, 0.8, 'sine', 0.08, 780);
+    }
   }
   P.sp = Math.min(P.maxSp, P.sp + P.spRegen * (z ? 3 : 1) * dt);
   if (backOK && P.x - cam.x < W * 0.3) cam.x = Math.max(0, P.x - W * 0.3);

@@ -153,7 +153,23 @@ test('7. 눈빛: 몬스터는 밝으면 사라지고, 포인트는 언제나 멀
   glow = []; drawWorld(); check(glow[0] === 1, '공격 준비 중인 좀비는 가까워도 눈이 번뜩임');
 `);
 
-test('8. 10분 자동 플레이 (오류가 안 나는지)', `
+test('8. 세이브 포인트 체력: 비어 있는 체력의 2/3 만, 한 번만', `
+  reset(); P.x = 2300; cam.x = P.x - W * 0.38; P.hp = 40;
+  keys.KeyD = true; for (let i = 0; i < 120 && !zoneAt(P.x); i++) update(1 / 60); keys.KeyD = false;
+  check(P.hp === 80, '체력 40/100 으로 도착 → 비어 있는 60 의 2/3 인 40 을 채워서 80 (결과 ' + P.hp + ')');
+  run(5);
+  check(P.hp === 80, '세이브 지역에 5초 더 있어도 체력이 더 안 참 (결과 ' + Math.round(P.hp) + ')');
+  enterAfterlife(); run(1);
+  check(P.hp === 80, '사후세계에 들어가도 체력이 안 참 (결과 ' + Math.round(P.hp) + ')');
+  leaveAfterlife();
+  P.hp = 50; keys.KeyA = true; run(0.5); keys.KeyA = false; keys.KeyD = true; run(0.5); keys.KeyD = false;
+  check(P.hp === 50, '이미 지나간 세이브 포인트에 다시 들어가면 또 안 참 (결과 ' + Math.round(P.hp) + ')');
+  P.hp = 10; P.x = 4800 - 30; cam.x = P.x - W * 0.38;
+  keys.KeyD = true; for (let i = 0; i < 120 && !zoneAt(P.x); i++) update(1 / 60); keys.KeyD = false;
+  check(P.hp === 70, '다음 세이브 포인트: 10/100 → 비어 있는 90 의 2/3 인 60 → 70 (결과 ' + P.hp + ')');
+`);
+
+test('9. 10분 자동 플레이 (오류가 안 나는지)', `
   newGame(); state = 'play'; let deaths = 0, afters = 0;
   for (let i = 0; i < 60 * 600; i++) {
     keys.KeyD = (i % 400) < 330; keys.KeyW = (i % 120) < 30; keys.KeyS = (i % 120) > 90;
