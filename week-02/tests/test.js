@@ -389,6 +389,44 @@ test('12. 최종 보스 무명귀', `
   check(state === 'play' && bossDone, '[1] 엔드리스 계속하기 → 바로 저승길로');
 `);
 
+test('13. 몬스터 소리 (가짜 스피커로 확인)', `
+  // 진짜 소리는 못 들으니, 소리를 만드는 부품이 몇 개 만들어지는지 세는 가짜 스피커를 쓴다
+  let made = 0;
+  const param = () => ({ value: 0, setValueAtTime() {}, exponentialRampToValueAtTime(a) { if (!(a > 0)) throw new Error('0 이하 값'); }, linearRampToValueAtTime() {} });
+  const node = () => { made++; return { connect() {}, start() {}, stop() {}, frequency: param(), gain: param(), Q: param(), pan: param(), type: '', buffer: null }; };
+  AC = { currentTime: 0, sampleRate: 8000, destination: {}, createOscillator: node, createGain: node, createBiquadFilter: node, createBufferSource: node, createStereoPanner: node, createBuffer: (c, n) => ({ getChannelData: () => new Float32Array(n) }) };
+  master = node(); muted = false;
+  reset();
+  let all = 0, bad = [];
+  for (const type in MON_SOUNDS) for (const act in MON_SOUNDS[type]) {
+    voiceEnds.length = 0; made = 0;
+    try { monSound(type, act, P.x + 50); } catch (e) { bad.push(type + ':' + act + ' ' + e.message); }
+    if (made < 2) bad.push(type + ':' + act + ' (소리가 안 만들어짐)');
+    all++;
+  }
+  check(bad.length === 0, '몬스터 7종의 소리 ' + all + '가지가 모두 오류 없이 만들어짐' + (bad.length ? ' — ' + bad.join(', ') : ''));
+  for (const type of ['zombie', 'skeleton', 'wisp', 'shade', 'wongwi', 'knight']) check(['idle', 'hit', 'hurt', 'die'].every(a => MON_SOUNDS[type][a] || (type === 'knight' && a === 'idle')), MON_SOUNDS[type] ? MON[type].name + ': 평소·공격·맞음·퇴마 소리가 다 있음' : type);
+  voiceEnds.length = 0; made = 0; monSound('zombie', 'idle', P.x + 2000);
+  check(made === 0, '아주 멀리 있는 몬스터 소리는 안 들림');
+  voiceEnds.length = 0; muted = true; made = 0; monSound('zombie', 'idle', P.x + 10); muted = false;
+  check(made === 0, 'M 으로 소리를 끄면 안 들림');
+  // 실제로 싸울 때 행동마다 소리가 나는지
+  const heard = type => soundLog.filter(s => s.startsWith(type + ':')).map(s => s.split(':')[1]);
+  for (const type of ['zombie', 'skeleton', 'wisp', 'shade', 'wongwi', 'knight']) {
+    reset(); soundLog.length = 0; voiceEnds.length = 0;
+    const m = spawnMonster(type, P.x + 450, P.y); m.fade = 1; m.acd = 0; m.sndT = 0.1;   // 멀리서 다가오게 (다가오는 동안 평소 소리)
+    for (let i = 0; i < 60 * 15 && !(heard(type).includes('hit') && i > 60 * 3); i++) { update(1 / 60); P.hp = P.maxHp; voiceEnds.length = 0; if (m.type === 'wongwi') m.tp = 99; }
+    hurt(m, 1, 1, 0, 0); m.hp = 0; hurt(m, 1, 1, 0, 0);
+    const got = [...new Set(heard(type))];
+    const need = type === 'wisp' ? ['idle', 'wind', 'hit', 'hurt', 'die'] : type === 'knight' ? ['step', 'wind', 'hit', 'hurt', 'die'] : ['idle', 'wind', 'hit', 'hurt', 'die'];
+    check(need.every(a => got.includes(a)), MON[type].name + ' 싸움에서 난 소리: ' + got.join(', '));
+  }
+  reset(); soundLog.length = 0; lastSave = BOSS_SAVE; P.x = BX0 + 200; cam.x = BX0; bossSaved = 1; startBoss(); boss.intro = 0;
+  for (const k of ['sweep', 'names', 'grab', 'hands']) { voiceEnds.length = 0; boss.act = null; bossAct(boss, k); for (let i = 0; i < 90; i++) { update(1 / 60); P.hp = P.maxHp; boss.cd = 99; } }
+  check(['sweepWind', 'sweepHit', 'namesWind', 'namesFire', 'grabWind', 'handsWind', 'handsUp'].every(a => heard('boss').includes(a)), '무명귀 공격마다 소리: ' + [...new Set(heard('boss'))].join(', '));
+  AC = null;
+`);
+
 test('11. 10분 자동 플레이 (오류가 안 나는지)', `
   newGame(); state = 'play'; let deaths = 0, afters = 0;
   for (let i = 0; i < 60 * 600; i++) {

@@ -214,6 +214,145 @@ function sfx(f, dur = 0.12, type = 'triangle', vol = 0.12, f2) {
   o.connect(g); g.connect(master); o.start(t); o.stop(t + dur + 0.02);
 }
 
+// ===== 몬스터 소리 =====
+// 소리 파일 없이 브라우저가 직접 만든다. 가까울수록 크게, 화면 왼쪽 몬스터는 왼쪽 스피커에서 들린다.
+// 몬스터마다: idle(평소) · wind(공격 준비) · hit(공격) · hurt(맞음) · die(퇴마) + 특별한 행동
+let NOISE = null;
+const voiceEnds = [];      // 동시에 너무 많은 소리가 나지 않게 (최대 18개)
+const soundLog = [];       // 시험용: 마지막에 난 소리 이름들
+function noiseBuf() {
+  if (!NOISE) {
+    NOISE = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate);
+    const d = NOISE.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  }
+  return NOISE;
+}
+function env(param, t0, dur, vol, att = 0.02) {
+  param.setValueAtTime(0.0001, t0);
+  param.exponentialRampToValueAtTime(Math.max(0.0002, vol), t0 + Math.min(att, dur * 0.9));
+  param.exponentialRampToValueAtTime(0.0001, t0 + dur);
+}
+// 음 하나: f 에서 f2 로 미끄러짐, vib 떨림, filt 로 소리를 둥글게
+function tone(out, o) {
+  const t0 = AC.currentTime + (o.delay || 0), dur = o.dur;
+  const osc = AC.createOscillator(); osc.type = o.type || 'sine';
+  osc.frequency.setValueAtTime(o.f, t0);
+  if (o.f2) osc.frequency.exponentialRampToValueAtTime(o.f2, t0 + dur);
+  if (o.vib) {
+    const l = AC.createOscillator(), lg = AC.createGain();
+    l.frequency.value = o.vibF || 6; lg.gain.value = o.vib; l.connect(lg); lg.connect(osc.frequency);
+    l.start(t0); l.stop(t0 + dur + 0.05);
+  }
+  const g = AC.createGain(); env(g.gain, t0, dur, o.vol, o.att);
+  let n = osc;
+  if (o.filt) { const fl = AC.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = o.filt; fl.Q.value = o.q || 1; osc.connect(fl); n = fl; }
+  n.connect(g); g.connect(out);
+  osc.start(t0); osc.stop(t0 + dur + 0.05);
+}
+// 바람·숨·긁는 소리: 잡음을 걸러서 만든다
+function hiss(out, o) {
+  const t0 = AC.currentTime + (o.delay || 0), dur = o.dur;
+  const src = AC.createBufferSource(); src.buffer = noiseBuf();
+  const fl = AC.createBiquadFilter(); fl.type = o.ft || 'bandpass';
+  fl.frequency.setValueAtTime(o.f, t0); if (o.f2) fl.frequency.exponentialRampToValueAtTime(o.f2, t0 + dur);
+  fl.Q.value = o.q || 1;
+  const g = AC.createGain(); env(g.gain, t0, dur, o.vol, o.att);
+  src.connect(fl); fl.connect(g); g.connect(out);
+  src.start(t0, Math.random() * 1.5); src.stop(t0 + dur + 0.05);
+}
+// 뼈가 부딪히는 딸깍 소리 여러 번
+function clicks(out, n, spread, f, vol) {
+  for (let i = 0; i < n; i++) hiss(out, { f: f * (0.8 + Math.random() * 0.5), q: 4, dur: 0.035, vol: vol * (0.6 + Math.random() * 0.5), att: 0.003, delay: i * spread + Math.random() * spread * 0.4 });
+}
+// 쇠붙이 소리 (서로 안 어울리는 높은 음 두 개)
+function clank(out, vol, delay = 0) {
+  tone(out, { type: 'square', f: 1250 + Math.random() * 200, dur: 0.07, vol: vol * 0.5, att: 0.003, delay, filt: 4000 });
+  tone(out, { type: 'square', f: 1873 + Math.random() * 200, dur: 0.05, vol: vol * 0.35, att: 0.003, delay, filt: 5000 });
+  tone(out, { f: 90, f2: 55, dur: 0.12, vol, att: 0.005, delay });
+}
+const MON_SOUNDS = {
+  zombie: {
+    idle: o => { tone(o, { type: 'sawtooth', f: 95, f2: 72, dur: 1.1, vol: 0.09, vib: 6, vibF: 4, filt: 480, att: 0.25 }); hiss(o, { ft: 'lowpass', f: 300, dur: 1.0, vol: 0.03, att: 0.3 }); },
+    wind: o => { tone(o, { type: 'sawtooth', f: 78, f2: 135, dur: 0.55, vol: 0.12, vib: 8, vibF: 7, filt: 700, att: 0.1 }); hiss(o, { f: 800, dur: 0.5, vol: 0.05, att: 0.2 }); },
+    hit: o => { tone(o, { f: 95, f2: 38, dur: 0.22, vol: 0.2, att: 0.005 }); hiss(o, { ft: 'lowpass', f: 700, f2: 180, dur: 0.16, vol: 0.12, att: 0.005 }); },
+    hurt: o => tone(o, { type: 'sawtooth', f: 125, f2: 80, dur: 0.2, vol: 0.08, filt: 600 }),
+    die: o => { tone(o, { type: 'sawtooth', f: 115, f2: 38, dur: 1.4, vol: 0.12, vib: 5, vibF: 5, filt: 500, att: 0.05 }); hiss(o, { ft: 'lowpass', f: 400, f2: 90, dur: 1.2, vol: 0.05 }); },
+  },
+  skeleton: {
+    idle: o => clicks(o, 6, 0.06, 3000, 0.1),
+    wind: o => { clicks(o, 4, 0.04, 3200, 0.09); tone(o, { type: 'triangle', f: 1800, f2: 2600, dur: 0.32, vol: 0.035, att: 0.1 }); hiss(o, { f: 4000, f2: 6000, q: 6, dur: 0.32, vol: 0.05, att: 0.15 }); },
+    hit: o => { hiss(o, { f: 3200, f2: 1400, q: 2, dur: 0.13, vol: 0.13, att: 0.005 }); clicks(o, 2, 0.03, 2500, 0.1); },
+    hurt: o => clicks(o, 3, 0.03, 2800, 0.1),
+    die: o => { for (let i = 0; i < 14; i++) hiss(o, { f: 3400 - i * 150, q: 4, dur: 0.04, vol: 0.11, att: 0.003, delay: i * 0.055 + Math.random() * 0.03 }); tone(o, { f: 160, f2: 70, dur: 0.15, vol: 0.08, delay: 0.7 }); },
+  },
+  wisp: {
+    idle: o => { hiss(o, { f: 1800, f2: 1200, q: 4, dur: 1.2, vol: 0.05, att: 0.4 }); hiss(o, { f: 2600, f2: 2000, q: 5, dur: 0.8, vol: 0.03, att: 0.3, delay: 0.3 }); },
+    wind: o => hiss(o, { f: 500, f2: 2500, q: 2, dur: 0.5, vol: 0.08, att: 0.45 }),
+    hit: o => { tone(o, { f: 700, f2: 1100, dur: 0.4, vol: 0.06, vib: 25, vibF: 7, att: 0.05 }); tone(o, { f: 707, f2: 1000, dur: 0.4, vol: 0.05, vib: 20, vibF: 6.3, att: 0.05 }); },
+    hurt: o => tone(o, { f: 900, f2: 600, dur: 0.2, vol: 0.05, vib: 30, vibF: 9 }),
+    die: o => { hiss(o, { f: 1500, f2: 400, q: 3, dur: 1.2, vol: 0.07, att: 0.05 }); tone(o, { f: 600, f2: 300, dur: 1.0, vol: 0.04, vib: 10, vibF: 5 }); },
+  },
+  shade: {
+    idle: o => { tone(o, { type: 'sawtooth', f: 48, f2: 43, dur: 1.3, vol: 0.12, filt: 220, vib: 3, vibF: 9, att: 0.3 }); hiss(o, { ft: 'lowpass', f: 200, dur: 1.2, vol: 0.05, att: 0.3 }); },
+    dash: o => hiss(o, { f: 300, f2: 1800, q: 1.5, dur: 0.35, vol: 0.1, att: 0.1 }),
+    wind: o => { hiss(o, { ft: 'highpass', f: 3000, dur: 0.4, vol: 0.07, att: 0.25 }); tone(o, { type: 'sawtooth', f: 60, f2: 95, dur: 0.4, vol: 0.08, filt: 300 }); },
+    hit: o => { hiss(o, { f: 2600, f2: 900, q: 2, dur: 0.18, vol: 0.14, att: 0.005 }); tone(o, { type: 'sawtooth', f: 420, f2: 150, dur: 0.15, vol: 0.05, filt: 1200 }); },
+    hurt: o => tone(o, { type: 'sawtooth', f: 72, f2: 50, dur: 0.25, vol: 0.1, filt: 300 }),
+    die: o => { tone(o, { type: 'sawtooth', f: 42, f2: 24, dur: 1.5, vol: 0.14, filt: 200 }); hiss(o, { ft: 'lowpass', f: 600, f2: 100, dur: 1.4, vol: 0.07 }); },
+  },
+  wongwi: {
+    idle: o => { tone(o, { type: 'triangle', f: 620, f2: 560, dur: 1.4, vol: 0.05, vib: 18, vibF: 5, att: 0.4, filt: 1500 }); tone(o, { type: 'triangle', f: 600, f2: 520, dur: 1.2, vol: 0.04, vib: 22, vibF: 4.5, att: 0.3, filt: 1500, delay: 0.75 }); },
+    vanish: o => hiss(o, { f: 2000, f2: 300, q: 3, dur: 0.8, vol: 0.06, att: 0.7 }),
+    appear: o => tone(o, { f: 1200, f2: 700, dur: 0.6, vol: 0.04, vib: 40, vibF: 8 }),
+    wind: o => tone(o, { type: 'triangle', f: 500, f2: 900, dur: 0.6, vol: 0.06, vib: 20, vibF: 6, att: 0.5 }),
+    hit: o => { hiss(o, { ft: 'highpass', f: 3500, dur: 0.25, vol: 0.1 }); tone(o, { type: 'sawtooth', f: 900, f2: 1400, dur: 0.2, vol: 0.04, filt: 2500 }); },
+    scream: o => { for (const [a, b] of [[1100, 1600], [1150, 1650], [820, 1300]]) tone(o, { type: 'sawtooth', f: a, f2: b, dur: 1.0, vol: 0.045, vib: 40, vibF: 9, filt: 3000, att: 0.08 }); hiss(o, { ft: 'highpass', f: 2500, dur: 1.0, vol: 0.05, att: 0.1 }); },
+    hurt: o => tone(o, { type: 'triangle', f: 800, f2: 600, dur: 0.25, vol: 0.05, vib: 30, vibF: 8 }),
+    die: o => tone(o, { type: 'triangle', f: 900, f2: 200, dur: 2.0, vol: 0.08, vib: 25, vibF: 6, att: 0.05, filt: 2000 }),
+  },
+  knight: {
+    step: o => clank(o, 0.06),
+    aim: o => { hiss(o, { f: 3000, f2: 5000, q: 8, dur: 0.8, vol: 0.07, att: 0.3 }); tone(o, { type: 'triangle', f: 2600, f2: 3400, dur: 0.8, vol: 0.03, att: 0.3 }); },
+    charge: o => { tone(o, { type: 'sawtooth', f: 72, f2: 48, dur: 0.7, vol: 0.12, filt: 300, vib: 4, vibF: 11 }); hiss(o, { ft: 'lowpass', f: 800, dur: 0.7, vol: 0.08 }); },
+    wind: o => tone(o, { type: 'triangle', f: 1500, dur: 0.5, vol: 0.04, vib: 5, vibF: 5 }),
+    hit: o => { hiss(o, { f: 600, f2: 2000, q: 1.5, dur: 0.25, vol: 0.15, att: 0.01 }); tone(o, { f: 120, f2: 50, dur: 0.25, vol: 0.15 }); },
+    hurt: o => clank(o, 0.07),
+    die: o => { for (let i = 0; i < 6; i++) clank(o, 0.09, i * 0.09 + Math.random() * 0.05); tone(o, { f: 80, f2: 30, dur: 1.0, vol: 0.15 }); },
+  },
+  boss: {
+    idle: o => { for (let i = 0; i < 3; i++) hiss(o, { f: 900 + Math.random() * 300, f2: 700, q: 6, dur: 0.4, vol: 0.05, att: 0.15, delay: i * 0.5 }); tone(o, { type: 'sawtooth', f: 55, dur: 2, vol: 0.05, filt: 150, att: 0.5 }); },
+    sweepWind: o => { hiss(o, { f: 200, f2: 900, q: 2, dur: 0.9, vol: 0.1, att: 0.85 }); tone(o, { type: 'sawtooth', f: 50, f2: 70, dur: 0.9, vol: 0.08, filt: 200, att: 0.6 }); },
+    sweepHit: o => { hiss(o, { f: 400, f2: 150, q: 1.5, dur: 0.35, vol: 0.18, att: 0.01 }); tone(o, { f: 70, f2: 30, dur: 0.4, vol: 0.2 }); },
+    namesWind: o => { for (let i = 0; i < 5; i++) hiss(o, { f: 700 + Math.random() * 700, q: 8, dur: 0.5, vol: 0.05, att: 0.15, delay: i * 0.1 }); },
+    namesFire: o => tone(o, { f: 400, f2: 900, dur: 0.4, vol: 0.05, vib: 30, vibF: 8 }),
+    handsWind: o => { tone(o, { f: 42, f2: 34, dur: 1.2, vol: 0.2, att: 0.2 }); hiss(o, { ft: 'lowpass', f: 150, dur: 1.2, vol: 0.1, att: 0.2 }); },
+    handsUp: o => { hiss(o, { ft: 'highpass', f: 1500, dur: 0.1, vol: 0.15, att: 0.003 }); tone(o, { type: 'square', f: 120, f2: 60, dur: 0.15, vol: 0.08, filt: 800 }); },
+    grabWind: o => { tone(o, { type: 'sawtooth', f: 140, f2: 110, dur: 0.85, vol: 0.09, vib: 12, vibF: 6, filt: 900, q: 6, att: 0.2 }); tone(o, { type: 'sawtooth', f: 211, f2: 166, dur: 0.85, vol: 0.07, vib: 12, vibF: 6.5, filt: 900, q: 6, att: 0.2 }); },
+    grabHit: o => tone(o, { type: 'sawtooth', f: 300, f2: 100, dur: 0.3, vol: 0.12, filt: 1500 }),
+    phase: o => { tone(o, { type: 'sawtooth', f: 60, f2: 40, dur: 1.5, vol: 0.18, filt: 300, vib: 6, vibF: 7 }); tone(o, { type: 'sawtooth', f: 90, f2: 55, dur: 1.4, vol: 0.12, filt: 400 }); hiss(o, { ft: 'lowpass', f: 600, f2: 200, dur: 1.4, vol: 0.1 }); },
+    hurt: o => tone(o, { f: 200, f2: 150, dur: 0.15, vol: 0.05 }),
+    die: o => { tone(o, { type: 'sawtooth', f: 80, f2: 20, dur: 3, vol: 0.2, filt: 300, vib: 4, vibF: 5 }); hiss(o, { ft: 'lowpass', f: 1000, f2: 100, dur: 3, vol: 0.1 }); for (let i = 0; i < 8; i++) hiss(o, { f: 800 + Math.random() * 600, q: 8, dur: 0.4, vol: 0.05 * (1 - i / 8), delay: 0.3 + i * 0.3 }); },
+  },
+};
+// 몬스터 소리 내기: type 몬스터 종류, act 행동, x 몬스터 위치
+function monSound(type, act, x) {
+  const fn = MON_SOUNDS[type] && MON_SOUNDS[type][act];
+  if (!fn) return;
+  soundLog.push(type + ':' + act); if (soundLog.length > 60) soundLog.shift();
+  if (!AC || muted) return;
+  const now = AC.currentTime;
+  while (voiceEnds.length && voiceEnds[0] < now) voiceEnds.shift();
+  if (voiceEnds.length >= 18) return;
+  const vol = type === 'boss' ? 1 : clamp(1 - Math.abs(x - P.x) / 900, 0, 1);
+  if (vol < 0.03) return;
+  const g = AC.createGain(); g.gain.value = vol;
+  if (AC.createStereoPanner) { const p = AC.createStereoPanner(); p.pan.value = clamp((x - cam.x - W / 2) / (W / 2), -1, 1) * 0.8; g.connect(p); p.connect(master); }
+  else g.connect(master);
+  fn(g);
+  voiceEnds.push(now + 2); voiceEnds.sort((a, b) => a - b);
+}
+
 // ===== 도우미 =====
 function msg(text, dur = 2, color = '#e8ddff') { msgs.push({ text, t: dur, max: dur, color }); if (msgs.length > 3) msgs.shift(); }
 function floatText(x, y, text, color, size = 14) { texts.push({ x, y, text, color, size, t: 1.1 }); }
@@ -335,6 +474,7 @@ function hurt(m, base, nx, ny, kb) {
     if (weakHintT <= 0) { floatText(mcx(m), mcy(m) - 30, '영력 부족!', '#b197fc', 13); weakHintT = 1.2; }
   }
   m.hp -= dmg; m.flash = 0.12;
+  if ((m.hsT ?? 0) < time) { m.hsT = time + (m.type === 'boss' ? 0.35 : 0.18); monSound(m.type, 'hurt', m.x); }
   // 세게 맞으면 작은 몬스터는 공격 준비가 끊긴다
   if (!m.elite && m.atk && m.atk.phase === 'wind' && kb >= 120) { m.atk = null; m.acd = 0.6; }
   const k = m.elite ? 0.2 : 1;
@@ -411,7 +551,7 @@ function kill(m) {
   }
   burst(mcx(m), mcy(m), m.ghost ? '#cfe8ff' : '#a89f8c', m.elite ? 40 : 14, m.elite ? 220 : 130, m.ghost);
   if (m.ghost) for (let i = 0; i < 6; i++) parts.push({ x: mcx(m) + Math.random() * 20 - 10, y: mcy(m), vx: Math.random() * 20 - 10, vy: -40 - Math.random() * 60, t: 1.2, max: 1.2, color: '#e7f5ff', size: 3, glow: true });
-  sfx(m.ghost ? 900 : 160, m.elite ? 0.8 : 0.25, 'sine', 0.1, m.ghost ? 200 : 60);
+  monSound(m.type, 'die', m.x);
   if (m.type === 'boss') bossDefeated();
 }
 
@@ -898,6 +1038,10 @@ function update(dt) {
     let vx = dx / d * sp, vy = dy / d * sp;
     if (m.ghost) m.hover = 14 + Math.sin(m.t * 2 + m.seed * 9) * 6;
     m.acd = (m.acd ?? 0.5) - dt;
+    // 평소 소리 (가까이 있을 때 가끔) · 해골 기사는 걸을 때 갑옷 소리
+    m.sndT = (m.sndT ?? 1 + Math.random() * 4) - dt;
+    if (m.sndT <= 0) { m.sndT = 3.5 + Math.random() * 5; if (!m.atk && !z && Math.abs(m.x - P.x) < 800 && m.fade > 0.5) monSound(m.type, 'idle', m.x); }
+    if (m.type === 'knight' && (m.amp ?? 0) > 0.4) { m.stepT = (m.stepT ?? 0) - dt; if (m.stepT <= 0) { m.stepT = m.cs === 'charge' ? 0.18 : 0.45; monSound('knight', 'step', m.x); } }
     if (z) {
       // 내가 세이브 포인트 안에 있으면 몬스터는 쫓아오지 않고 길 전체로 퍼져서 제멋대로 떠돈다
       if (m.vanish != null) m.vanish = null;
@@ -927,33 +1071,33 @@ function update(dt) {
     if (z) { /* 떠도는 중에는 특수 행동 없음 */ }
     else if (m.type === 'shade') {
       m.st = (m.st ?? 1) - dt;
-      if (m.st <= 0) { m.dashing = !m.dashing; m.st = m.dashing ? 0.5 : 1.1; }
+      if (m.st <= 0) { m.dashing = !m.dashing; m.st = m.dashing ? 0.5 : 1.1; if (m.dashing && m.fade > 0.5) monSound('shade', 'dash', m.x); }
       const f = m.dashing ? 2.6 : 0.35; vx *= f; vy *= f;
     }
     if (m.type === 'wongwi' && !z) {
       // 사라졌다가 내 근처에 다시 나타남 (천천히)
       m.tp = (m.tp ?? 4) - dt;
-      if (m.tp <= 0 && m.vanish == null && !m.atk) m.vanish = 0.8;
+      if (m.tp <= 0 && m.vanish == null && !m.atk) { m.vanish = 0.8; monSound('wongwi', 'vanish', m.x); }
       if (m.vanish != null) {
         m.vanish -= dt; m.fade = Math.max(0, m.vanish / 0.8); vx = vy = 0;
         if (m.vanish <= 0) {
           const a = Math.random() * Math.PI * 2;
           m.x = P.x + Math.cos(a) * 180; m.y = clamp(P.y + Math.sin(a) * 90, ROAD_TOP + 20, ROAD_BOT);
-          m.vanish = null; m.fade = 0; m.tp = 4 + Math.random() * 2;
+          m.vanish = null; m.fade = 0; m.tp = 4 + Math.random() * 2; monSound('wongwi', 'appear', m.x);
         }
       }
       m.sc = (m.sc ?? 6) - dt;
       if (m.sc <= 0 && m.fade > 0.8 && !m.atk) {
         m.sc = 7;
         effects.push({ kind: 'ring', x: mcx(m), y: mcy(m), r: 240, t: 0.8, max: 0.8, color: '200,60,90' });
-        sfx(900, 0.9, 'sawtooth', 0.04, 300);
+        monSound('wongwi', 'scream', m.x);
         if (d < 240) { P.slow = 2; damagePlayer(6, null); msg('원귀의 비명에 몸이 굳는다…', 1.5, '#ff8fa3'); }
       }
     }
     if (m.type === 'knight' && !z) {
       m.cs = m.cs || 'walk'; m.ct = (m.ct ?? 5) - dt;
-      if (m.cs === 'walk' && m.ct <= 0 && !m.atk) { m.cs = 'aim'; m.ct = 0.9; m.dir = Math.atan2(dy, dx); }
-      else if (m.cs === 'aim') { vx = vy = 0; if (m.ct <= 0) { m.cs = 'charge'; m.ct = 0.7; sfx(80, 0.5, 'sawtooth', 0.08, 40); } }
+      if (m.cs === 'walk' && m.ct <= 0 && !m.atk) { m.cs = 'aim'; m.ct = 0.9; m.dir = Math.atan2(dy, dx); monSound('knight', 'aim', m.x); }
+      else if (m.cs === 'aim') { vx = vy = 0; if (m.ct <= 0) { m.cs = 'charge'; m.ct = 0.7; monSound('knight', 'charge', m.x); } }
       else if (m.cs === 'charge') { vx = Math.cos(m.dir) * sp * 5; vy = Math.sin(m.dir) * sp * 5; if (m.ct <= 0) { m.cs = 'walk'; m.ct = 4 + Math.random() * 2; } }
     }
     // 공격 동작: 준비(wind) → 공격(hit) → 숨 고르기(rec)
@@ -961,14 +1105,14 @@ function update(dt) {
     const busy = m.vanish != null || m.fade < 0.8 || (m.type === 'knight' && m.cs !== 'walk');
     if (!z && !m.atk && !busy && m.acd <= 0 && d < A.trigger) {
       m.atk = { phase: 'wind', t: A.wind, ang: Math.atan2(dy, dx), done: false };
-      if (m.elite) sfx(70, 0.4, 'sawtooth', 0.05, 50);
+      monSound(m.type, 'wind', m.x);
     }
     if (m.atk) {
       const k = m.atk;
       k.t -= dt;
       vx = vy = 0;
       if (k.phase === 'wind') {
-        if (k.t <= 0) { k.phase = 'hit'; k.t = A.hit; }
+        if (k.t <= 0) { k.phase = 'hit'; k.t = A.hit; if (A.kind === 'lunge') monSound(m.type, 'hit', m.x); }
       } else if (k.phase === 'hit') {
         if (A.kind === 'lunge') {
           // 몸으로 날아들기: 날아가는 동안 닿으면 피해
@@ -981,7 +1125,7 @@ function update(dt) {
             k.done = true;
             effects.push({ kind: 'mslash', x: m.x + Math.cos(k.ang) * 10, y: m.y - m.r * 1.3, ang: k.ang, range: A.reach, t: 0.18, max: 0.18, color: m.ghost ? '170,140,255' : '255,90,70' });
             if (d < A.reach && angDiff(Math.atan2(dy, dx), k.ang) < 1.1) damagePlayer(m.dmg, m);
-            sfx(m.ghost ? 500 : 200, 0.1, 'sawtooth', 0.04, 90);
+            monSound(m.type, 'hit', m.x);
           }
         }
         if (k.t <= 0) { k.phase = 'rec'; k.t = A.rec; }
@@ -1104,15 +1248,15 @@ function knock() {
 }
 function toPhase(m, p) {
   m.phase = p; bossSaved = p; m.act = null; m.trans = p === 3 ? 2.4 : 1.4; m.vanish = null; m.fade = 1;
-  if (p === 2) { msg('무명귀가 어둠 속으로 숨는다… 진짜 눈을 찾아라', 3.5, '#d0bfff'); makeDecoys(); sfx(200, 1.4, 'sine', 0.1, 60); }
-  if (p === 3) { msg('무명귀가 남문을 부수고 마을로 쳐들어간다!', 3.5, '#ff8fa3'); sfx(90, 1.2, 'sawtooth', 0.12, 30); }
+  if (p === 2) { msg('무명귀가 어둠 속으로 숨는다… 진짜 눈을 찾아라', 3.5, '#d0bfff'); makeDecoys(); monSound('boss', 'phase', m.x); }
+  if (p === 3) { msg('무명귀가 남문을 부수고 마을로 쳐들어간다!', 3.5, '#ff8fa3'); monSound('boss', 'phase', m.x); }
 }
 function bossAct(m, kind) {
   const p = m.phase;
   const T = { sweep: [p === 3 ? 0.7 : 0.95, 0.18, 0.6], names: [0.6, 0.15, 0.7], hands: [0.35, 0.1, 1.1], eyes: [0.5, 0.1, 0.6], grab: [0.85, 0.25, 0.7] }[kind];
   m.face = P.x >= m.x ? 1 : -1;
   m.act = { kind, phase: 'wind', t: T[0], T, ang: Math.atan2(P.y - 28 - (m.y - 110), P.x - m.x), done: false };
-  if (kind === 'sweep' || kind === 'grab') sfx(60, 0.5, 'sawtooth', 0.05, 45);
+  monSound('boss', kind === 'eyes' ? 'namesWind' : kind + 'Wind', m.x);
 }
 function chooseBossAct(m) {
   const p = m.phase, opts = [];
@@ -1141,12 +1285,12 @@ function bossStrike(m, a) {
     effects.push({ kind: 'mslash', x: m.x, y: m.y - 70, ang: m.face > 0 ? 0 : Math.PI, range: 230, t: 0.3, max: 0.3, color: '200,170,255' });
     const hdx = P.x - m.x;
     if (Math.abs(P.y - m.y) < 95 && hdx * m.face > -50 && Math.abs(hdx) < 250) damagePlayer(BOSS_DMG.sweep * (m.phase === 3 ? 1.2 : 1), m);
-    sfx(110, 0.25, 'sawtooth', 0.08, 50);
+    monSound('boss', 'sweepHit', m.x);
   } else if (a.kind === 'names') {
     const spd = m.phase === 3 ? 205 : 170;
     if (m.phase === 3) for (let i = 0; i < 12; i++) fireName(cx, cy, i / 12 * Math.PI * 2 + m.t, spd * 0.8);
     for (let i = -2; i <= 2; i++) if (m.phase !== 3 || Math.abs(i) <= 1) fireName(cx, cy, a.ang + i * 0.22, spd);
-    sfx(500, 0.5, 'triangle', 0.05, 900);
+    monSound('boss', 'namesFire', m.x);
   } else if (a.kind === 'hands') {
     const n = m.phase === 3 ? 5 : 3;
     for (let i = 0; i < n; i++) {
@@ -1160,6 +1304,9 @@ function bossStrike(m, a) {
 }
 function updateBoss(m, dt) {
   m.t += dt; m.flash -= dt; m.vx = m.vy = 0;
+  // 평소에는 먹은 이름들을 중얼거린다
+  m.sndT = (m.sndT ?? 2) - dt;
+  if (m.sndT <= 0) { m.sndT = 4 + Math.random() * 3; if (!m.act && !(m.intro > 0)) monSound('boss', 'idle', m.x); }
   m.hover = 18 + Math.sin(m.t * 1.5) * 8;
   const dx = P.x - m.x, dy = P.y - m.y;
   // 등장 연출: 문을 두드리다가 천천히 돌아본다
@@ -1223,7 +1370,7 @@ function updateBoss(m, dt) {
       if (a.kind === 'grab' && !a.done) {
         const ex = m.x + Math.cos(a.ang) * 380, ey = m.y - 110 + Math.sin(a.ang) * 380;
         if (segDist(P.x, P.y - 28, m.x, m.y - 110, ex, ey) < 26) {
-          a.done = true; damagePlayer(BOSS_DMG.grab, m); P.slow = 1.5;
+          a.done = true; damagePlayer(BOSS_DMG.grab, m); monSound('boss', 'grabHit', m.x); P.slow = 1.5;
           msg('무명귀가 너의 이름을 부른다…', 1.8, '#ff8fa3'); eatOne();
         }
       }
@@ -1247,7 +1394,7 @@ function updateBossThings(dt) {
     if (!h.up) {
       h.t -= dt;
       if (h.t <= 0) {
-        h.up = true; sfx(90, 0.2, 'square', 0.06, 50);
+        h.up = true; monSound('boss', 'handsUp', h.x);
         if (Math.abs(P.x - h.x) < 40 && Math.abs(P.y - h.y) < 24) damagePlayer(BOSS_DMG.hand, { x: h.x, y: h.y + 30 });
       }
     } else h.life -= dt;
@@ -1348,7 +1495,11 @@ function drawBossGround() {
     if (h.up) continue;
     const x = h.x - cam.x, k = clamp(1 - h.t, 0, 1);
     ctx.fillStyle = `rgba(30,0,20,${0.35 + 0.35 * k})`; ctx.beginPath(); ctx.ellipse(x, h.y, 38, 15, 0, 0, 7); ctx.fill();
-    ctx.strokeStyle = `rgba(200,80,140,${0.3 + 0.5 * k})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, h.y, 38 * (1.2 - k * 0.2), 15 * (1.2 - k * 0.2), 0, 0, 7); ctx.stroke();
+    // 경고 표시는 어둠 위에 그려서 깜깜한 곳에서도 보이게
+    glows.push(() => {
+      ctx.fillStyle = `rgba(200,60,140,${0.08 + 0.14 * k})`; ctx.beginPath(); ctx.ellipse(x, h.y, 38, 15, 0, 0, 7); ctx.fill();
+      ctx.strokeStyle = `rgba(255,120,190,${0.4 + 0.45 * k})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, h.y, 38 * (1.2 - k * 0.2), 15 * (1.2 - k * 0.2), 0, 0, 7); ctx.stroke();
+    });
     lights.push({ x, y: h.y, r: 50, a: 0.3 * k });
   }
   // 도망가는 시민들
@@ -1369,13 +1520,17 @@ function drawBossTop() {
   for (const h of bhands) {
     if (!h.up) continue;
     const x = h.x - cam.x, k = clamp(h.life / 0.5, 0, 1), rise = (1 - Math.pow(1 - Math.min(1, (0.5 - h.life) * 6), 2)) * 46 * k;
-    ctx.fillStyle = 'rgba(200,200,215,0.9)';
-    for (const s of [-1, 1]) {
-      ctx.save(); ctx.translate(x + s * 12, h.y); ctx.rotate(s * 0.25);
-      ctx.fillRect(-4, -rise, 8, rise);
-      for (let f = 0; f < 4; f++) ctx.fillRect(-5 + f * 3, -rise - 12, 2, 12);
-      ctx.restore();
-    }
+    const drawHands = col => {
+      ctx.fillStyle = col;
+      for (const s of [-1, 1]) {
+        ctx.save(); ctx.translate(x + s * 12, h.y); ctx.rotate(s * 0.25);
+        ctx.fillRect(-4, -rise, 8, rise);
+        for (let f = 0; f < 4; f++) ctx.fillRect(-5 + f * 3, -rise - 12, 2, 12);
+        ctx.restore();
+      }
+    };
+    drawHands('rgba(200,200,215,0.9)');
+    glows.push(() => drawHands(`rgba(150,140,180,${0.35 * k})`));   // 어둠 속에서도 희미하게 보임
   }
   // 날아오는 이름 글자 (어둠 위에 빛나게)
   for (const s of bshots) {
@@ -1415,12 +1570,16 @@ function drawBoss(m) {
   ctx.translate(shake, 0);
   // 너덜너덜한 긴 옷자락
   const g = ctx.createLinearGradient(0, hy - 200, 0, hy + 10);
-  g.addColorStop(0, 'rgba(20,16,28,0.97)'); g.addColorStop(0.8, 'rgba(20,16,28,0.9)'); g.addColorStop(1, 'rgba(20,16,28,0)');
+  g.addColorStop(0, 'rgba(44,36,60,0.97)'); g.addColorStop(0.8, 'rgba(40,32,56,0.9)'); g.addColorStop(1, 'rgba(40,32,56,0)');
   ctx.fillStyle = g;
   ctx.beginPath(); ctx.moveTo(x - 24, hy - 185);
   ctx.quadraticCurveTo(x - 40, hy - 100, x - 46 + Math.sin(t * 2) * 4, hy + 6);
   for (let i = 0; i <= 8; i++) ctx.lineTo(x - 46 + i * 11.5, hy + 6 + Math.sin(t * 3 + i * 1.7) * 7 + (i % 2) * 9);
   ctx.quadraticCurveTo(x + 40, hy - 100, x + 24, hy - 185); ctx.fill();
+  // 옷자락 양옆 테두리 (어두운 담장과 구분되게)
+  ctx.strokeStyle = 'rgba(170,150,220,0.32)'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x - 24, hy - 185); ctx.quadraticCurveTo(x - 40, hy - 100, x - 46 + Math.sin(t * 2) * 4, hy - 4);
+  ctx.moveTo(x + 24, hy - 185); ctx.quadraticCurveTo(x + 40, hy - 100, x + 46, hy - 4); ctx.stroke();
   // 옷자락에 붙은 작은 눈들 (뜨고 감음)
   for (let i = 0; i < 7; i++) {
     const ex = x + (hash(i, 300) - 0.5) * 50, ey = hy - 40 - hash(i, 301) * 120, open = Math.max(0, Math.sin(t * (0.6 + hash(i, 302)) + i * 2)) * (m.phase === 3 ? 1 : 0.6);
@@ -1439,8 +1598,12 @@ function drawBoss(m) {
   else if (kind === 'grab') { front = mix(mix(front, P2(-f * 30, -180), w), [m.x - cam.x + Math.cos(a.ang) * 360, y - 110 + Math.sin(a.ang) * 360], hk); }
   for (const [end, sh] of [[back, -1], [front, 1]]) {
     const shx = x + f * sh * 20, shy = hy - 172;
-    ctx.strokeStyle = 'rgba(26,20,34,0.98)'; ctx.lineWidth = 6; ctx.lineCap = 'round';
-    ctx.beginPath(); ctx.moveTo(shx, shy); ctx.quadraticCurveTo((shx + end[0]) / 2 + f * sh * 30, (shy + end[1]) / 2 - 20, end[0], end[1]); ctx.stroke();
+    // 긴 팔: 희미한 테두리 위에 짙은 색
+    ctx.lineCap = 'round';
+    for (const [col, lw] of [['rgba(170,150,220,0.3)', 9], ['rgba(52,42,70,0.98)', 6]]) {
+      ctx.strokeStyle = col; ctx.lineWidth = lw;
+      ctx.beginPath(); ctx.moveTo(shx, shy); ctx.quadraticCurveTo((shx + end[0]) / 2 + f * sh * 30, (shy + end[1]) / 2 - 20, end[0], end[1]); ctx.stroke();
+    }
     const ang = Math.atan2(end[1] - shy, end[0] - shx);
     ctx.strokeStyle = 'rgba(200,200,215,0.9)'; ctx.lineWidth = 2;   // 길고 하얀 손가락
     for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(end[0], end[1]); ctx.lineTo(end[0] + Math.cos(ang + k * 0.22) * 22, end[1] + Math.sin(ang + k * 0.22) * 22); ctx.stroke(); }
@@ -1473,7 +1636,7 @@ function drawBoss(m) {
   });
   // 휘두르기 준비: 닿는 범위를 희미하게 보여 준다
   if (kind === 'sweep' && a.phase === 'wind') glows.push(() => {
-    ctx.fillStyle = `rgba(200,120,255,${0.08 + 0.1 * w})`;
+    ctx.fillStyle = `rgba(200,120,255,${0.12 + 0.14 * w})`;
     ctx.beginPath(); ctx.moveTo(x, y - 20); ctx.arc(x, y - 20, 250, f > 0 ? -0.35 : Math.PI - 0.35, f > 0 ? 0.35 : Math.PI + 0.35); ctx.fill();
   });
   lights.push({ x, y: hy - 120, r: 120, a: 0.25 * bodyA });
@@ -1763,11 +1926,15 @@ function drawMonster(m) {
     glows.push(() => { const gg = ctx.createRadialGradient(x, hy, 0, x, hy, 34); const c = angry ? '255,140,170' : '150,190,255'; gg.addColorStop(0, `rgba(${c},${0.3 * m.fade})`); gg.addColorStop(1, `rgba(${c},0)`); ctx.fillStyle = gg; ctx.fillRect(x - 34, hy - 34, 68, 68); });
   } else if (m.type === 'shade') {
     const hy = y - 10 - m.hover * 0.5;
-    ctx.fillStyle = 'rgba(5,3,10,0.92)';
-    for (let i = 0; i < 7; i++) { ctx.beginPath(); ctx.arc(x + Math.sin(t * 4 + i * 2) * 4 - f * w * 4, hy - i * 6, 13 - i * 0.6 + Math.sin(t * 6 + i) * 2 + w * 2, 0, 7); ctx.fill(); }
+    // 어두운 배경과 구분되게: 몸 가장자리에 희미한 보랏빛 테두리를 먼저 깔고, 몸은 아주 짙은 보라색
+    const blob = i => [x + Math.sin(t * 4 + i * 2) * 4 - f * w * 4, hy - i * 6, 13 - i * 0.6 + Math.sin(t * 6 + i) * 2 + w * 2];
+    ctx.fillStyle = 'rgba(150,130,200,0.3)';
+    for (let i = 0; i < 7; i++) { const [bx, by, br] = blob(i); ctx.beginPath(); ctx.arc(bx, by, br + 1.8, 0, 7); ctx.fill(); }
+    ctx.fillStyle = 'rgba(30,23,44,0.95)';
+    for (let i = 0; i < 7; i++) { const [bx, by, br] = blob(i); ctx.beginPath(); ctx.arc(bx, by, br, 0, 7); ctx.fill(); }
     // 긴 팔: 준비할 땐 뒤로 높이, 공격할 땐 앞으로 쭉 뻗어 할퀴기
     const reach = L(30 - w * 48, 82, hk), lift = L(-4 - w * 30, 4, hk);
-    ctx.strokeStyle = 'rgba(5,3,10,0.9)'; ctx.lineWidth = 3;
+    ctx.strokeStyle = 'rgba(70,56,98,0.95)'; ctx.lineWidth = 3;
     for (const s of [-1, 1]) {
       const ex = x + f * reach + Math.sin(t * 5 + s) * 4, ey = hy + lift + s * 5;
       ctx.beginPath(); ctx.moveTo(x + s * 8, hy - 26); ctx.quadraticCurveTo(x + f * reach * 0.6, hy - 24 + s * 6 + lift * 0.5, ex, ey); ctx.stroke();
@@ -1797,9 +1964,9 @@ function drawMonster(m) {
     // 얼굴을 덮은 긴 머리 (준비할 때 고개를 꺾음)
     const tilt = f * (w * 0.5 + hk * 0.3);
     ctx.save(); ctx.translate(x, hy - 60); ctx.rotate(tilt);
-    ctx.fillStyle = '#060507';
+    ctx.fillStyle = '#1c1724';
     ctx.beginPath(); ctx.arc(0, -8, 11, Math.PI, 0); ctx.lineTo(13, 30 + Math.sin(t * 1.5) * 3); ctx.lineTo(-13, 32 + Math.sin(t * 1.5 + 1) * 3); ctx.fill();
-    ctx.strokeStyle = '#060507'; ctx.lineWidth = 2;
+    ctx.strokeStyle = '#1c1724'; ctx.lineWidth = 2;
     for (let i = -2; i <= 2; i++) { ctx.beginPath(); ctx.moveTo(i * 5, 20); ctx.lineTo(i * 6 + Math.sin(t * 2 + i) * 3, 42); ctx.stroke(); }
     ctx.restore();
     // 머리카락 사이로 보이는 눈 하나 (고개와 같이 기울어짐)
@@ -1809,9 +1976,11 @@ function drawMonster(m) {
     const s = m.cs === 'charge' ? Math.sin(t * 18) : Math.sin(t * 5) * (m.amp ?? 0);
     ctx.strokeStyle = '#cfc8b6'; ctx.lineWidth = 4;
     ctx.beginPath(); ctx.moveTo(x, y - 28); ctx.lineTo(x - 6 + s * 6, y); ctx.moveTo(x, y - 28); ctx.lineTo(x + 6 - s * 6, y); ctx.stroke();
-    ctx.fillStyle = '#2c2f38'; ctx.beginPath(); ctx.moveTo(x - 16, y - 62); ctx.lineTo(x + 16, y - 62); ctx.lineTo(x + 12, y - 26); ctx.lineTo(x - 12, y - 26); ctx.fill();
-    ctx.strokeStyle = '#4a4f5c'; ctx.lineWidth = 2; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(x - 12, y - 52 + i * 8); ctx.lineTo(x + 12, y - 52 + i * 8); ctx.stroke(); }
-    ctx.fillStyle = '#3a3f4b'; ctx.beginPath(); ctx.arc(x, y - 74, 12, 0, 7); ctx.fill(); ctx.fillRect(x - 12, y - 74, 24, 10);
+    ctx.fillStyle = '#454b5a'; ctx.beginPath(); ctx.moveTo(x - 16, y - 62); ctx.lineTo(x + 16, y - 62); ctx.lineTo(x + 12, y - 26); ctx.lineTo(x - 12, y - 26); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(170,180,200,0.45)'; ctx.lineWidth = 1.5; ctx.stroke();   // 갑옷 테두리 (쇠붙이에 비친 빛)
+    ctx.strokeStyle = '#6a7182'; ctx.lineWidth = 2; for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(x - 12, y - 52 + i * 8); ctx.lineTo(x + 12, y - 52 + i * 8); ctx.stroke(); }
+    ctx.fillStyle = '#545b6c'; ctx.beginPath(); ctx.arc(x, y - 74, 12, 0, 7); ctx.fill(); ctx.fillRect(x - 12, y - 74, 24, 10);
+    ctx.strokeStyle = 'rgba(170,180,200,0.45)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y - 74, 12, Math.PI, 0); ctx.stroke();
     ctx.fillStyle = '#5a1b25'; ctx.beginPath(); ctx.moveTo(x - 2, y - 86); ctx.quadraticCurveTo(x - f * 20, y - 96, x - f * 26, y - 78); ctx.lineTo(x - 2, y - 82); ctx.fill();
     ctx.fillStyle = '#111'; ctx.fillRect(x - 9, y - 76, 18, 4);
     // 큰 칼: 준비할 땐 머리 뒤로 높이 들고, 공격할 땐 앞으로 내리침
