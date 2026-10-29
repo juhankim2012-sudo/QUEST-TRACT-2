@@ -92,6 +92,11 @@ let P, pts, owned, weapon, wlv, learned, slots, skillCd, uniques, up;
 let mons, shots, effects, parts, texts, msgs;
 let spawnT, nextElite, eliteIdx, lastSave, hurtFlash, beat;
 let drops, natT;   // 바닥에 떨어진 포인트, 저절로 생기는 포인트 타이머
+// 구간(등불과 다음 등불 사이)마다 나오는 몬스터 수는 정해져 있다. 뒤 구간일수록 많다 (강한 몬스터는 따로)
+let segSpawned;
+const segOf = x => Math.floor(x / SAVE_GAP);
+const segQuota = s => 15 + 8 * s;
+const segLeft = s => Math.max(0, segQuota(s) - (segSpawned[s] || 0));
 
 function newGame() {
   P = { x: 140, y: 390, hp: 100, maxHp: 100, sp: 100, maxSp: 100, spRegen: 9, speed: 210,
@@ -102,6 +107,7 @@ function newGame() {
   learned = {}; slots = [null, null]; skillCd = {}; uniques = {}; up = { hp: 0, sp: 0 };
   mons = []; shots = []; effects = []; parts = []; texts = []; msgs = [];
   spawnT = 1.5; nextElite = 4200; eliteIdx = 0; lastSave = 0; hurtFlash = 0; beat = 0;
+  segSpawned = {};
   drops = []; natT = 4;
   cam.x = 0;
 }
@@ -232,7 +238,9 @@ function pickType() {
 }
 function trySpawn() {
   if (mons.length > 45) return;
-  const count = 1 + Math.floor(Math.random() * (1 + P.x / 5000));
+  const s = segOf(P.x);
+  if (segLeft(s) <= 0) return;   // 이 구간 몬스터는 다 나왔다
+  const count = Math.min(segLeft(s), 1 + Math.floor(Math.random() * (1 + P.x / 5000)));
   for (let k = 0; k < count; k++) {
     const type = pickType();
     let x, y = ROAD_TOP + 20 + Math.random() * (ROAD_BOT - ROAD_TOP - 20);
@@ -245,6 +253,7 @@ function trySpawn() {
     }
     if (x < 300 || inZoneWide(x, 40)) continue;
     spawnMonster(type, x, y);
+    segSpawned[s] = (segSpawned[s] || 0) + 1;
   }
 }
 function spawnElite() {
@@ -415,6 +424,8 @@ function respawn() {
   pts.soul -= lost;
   const eliteLeft = mons.some(m => m.elite && !m.dead);
   mons = []; shots = []; effects = []; drops = [];
+  // 죽으면 마지막 등불부터 앞쪽 구간의 몬스터가 처음부터 다시 나온다
+  for (const s in segSpawned) if (+s >= lastSave) delete segSpawned[s];
   P.x = lastSave ? lastSave * SAVE_GAP + SAVE_W / 2 : 140; P.y = 390;
   P.hp = P.maxHp; P.sp = P.maxSp; P.inv = 1.5; P.slow = 0; P.dash = null; P.kx = P.ky = 0;
   // 못 잡은 강한 몬스터는 다시 나온다
@@ -1250,7 +1261,8 @@ function drawHUD() {
   ctx.fillText(`${Math.floor(P.x / 10)} m`, W / 2, 24);
   const nextSave = (Math.floor(P.x / SAVE_GAP) + 1) * SAVE_GAP;
   ctx.font = `11px ${FONT}`; ctx.fillStyle = '#7fbfb6';
-  ctx.fillText(zoneAt(P.x) ? '세이브 포인트 안 · 안전함' : `다음 등불까지 ${Math.floor((nextSave - P.x) / 10)} m`, W / 2, 40);
+  const left = segLeft(segOf(P.x)) + mons.filter(m => !m.elite && segOf(m.x) === segOf(P.x)).length;
+  ctx.fillText(zoneAt(P.x) ? '세이브 포인트 안 · 안전함' : `다음 등불까지 ${Math.floor((nextSave - P.x) / 10)} m · 이 구간 남은 몬스터 ${left}`, W / 2, 40);
   // 강한 몬스터 체력
   const el = mons.find(m => m.elite);
   if (el) {

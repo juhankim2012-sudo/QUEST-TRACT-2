@@ -169,7 +169,22 @@ test('8. 세이브 포인트 체력: 비어 있는 체력의 2/3 만, 한 번만
   check(P.hp === 70, '다음 세이브 포인트: 10/100 → 비어 있는 90 의 2/3 인 60 → 70 (결과 ' + P.hp + ')');
 `);
 
-test('9. 10분 자동 플레이 (오류가 안 나는지)', `
+test('9. 몬스터는 구간마다 정해진 수만큼만 나옴', `
+  for (const s of [0, 1, 3]) {
+    reset(); spawnT = 0; P.x = s * SAVE_GAP + SAVE_W + 400; cam.x = P.x - W * 0.38;
+    let made = 0; const real = spawnMonster;
+    spawnMonster = (t, x, y) => { made++; return real(t, x, y); };
+    // 3분 동안 한자리에 서서, 나오는 몬스터를 바로바로 없앤다
+    for (let i = 0; i < 60 * 180; i++) { update(1 / 60); mons = []; P.hp = P.maxHp; }
+    spawnMonster = real;
+    check(made === segQuota(s), (s + 1) + '번째 구간: 3분 동안 ' + made + '마리만 나옴 (정해진 수 ' + segQuota(s) + ')');
+  }
+  reset(); P.x = 2400 + SAVE_W + 400; lastSave = 1; segSpawned[1] = segQuota(1);
+  P.hp = 0; update(1 / 60); respawn();
+  check(segLeft(1) === segQuota(1), '죽고 다시 시작하면 그 구간 몬스터가 다시 나옴');
+`);
+
+test('10. 10분 자동 플레이 (오류가 안 나는지)', `
   newGame(); state = 'play'; let deaths = 0, afters = 0;
   for (let i = 0; i < 60 * 600; i++) {
     keys.KeyD = (i % 400) < 330; keys.KeyW = (i % 120) < 30; keys.KeyS = (i % 120) > 90;
