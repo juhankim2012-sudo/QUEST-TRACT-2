@@ -110,6 +110,7 @@ function newGame() {
   spawnT = 1.5; nextElite = 4200; eliteIdx = 0; lastSave = 0; hurtFlash = 0; beat = 0;
   segSpawned = {};
   drops = []; natT = 4;
+  resetBoss();
   cam.x = 0;
 }
 newGame();
@@ -143,6 +144,10 @@ cv.addEventListener('mousedown', e => {
   toCanvas(e); initAudio();
   if (state === 'title') { newGame(); state = 'play'; msg('저승길이 열렸다…', 2.5); return; }
   if (state === 'dead') { respawn(); return; }
+  if (state === 'ending') {
+    if (endingChoicesShown()) ENDING_BTNS.forEach((b, i) => { if (mouse.x > b.x && mouse.x < b.x + b.w && mouse.y > b.y && mouse.y < b.y + b.h) endingChoose(i); });
+    return;
+  }
   if (state !== 'play') return;
   if (e.button === 0) mouse.down = true;
   if (e.button === 2) castSlot(0);
@@ -152,6 +157,11 @@ cv.addEventListener('contextmenu', e => e.preventDefault());
 
 function onKey(code) {
   if (code === 'KeyM') toggleMute();
+  if (state === 'ending') {
+    if (endingChoicesShown() && (code === 'Digit1' || code === 'Numpad1')) endingChoose(0);
+    if (endingChoicesShown() && (code === 'Digit2' || code === 'Numpad2')) endingChoose(1);
+    return;
+  }
   if (state === 'afterlife') {
     if (talking) { if (code === 'Escape' || code === 'KeyF') closeTalk(); return; }
     if (chat) { if (code === 'Escape') chat = null; else if (code === 'KeyF') nextChat(); return; }
@@ -299,6 +309,8 @@ function attack() {
       const mx = mcx(m), my = mcy(m), d = Math.hypot(mx - x, my - y);
       if (d < w.range + m.r && angDiff(Math.atan2(my - y, mx - x), a) <= w.arc / 2) hurt(m, dmg, Math.cos(a), Math.sin(a), w.kb);
     }
+    // 무명귀가 날린 이름 글자는 베어서 없앨 수 있다
+    for (const s of bshots) if (Math.hypot(s.x - x, s.y - y) < w.range + 10 && angDiff(Math.atan2(s.y - y, s.x - x), a) <= w.arc / 2) { s.t = 0; burst(s.x, s.y, '#ffd6ec', 5, 80, true); }
     sfx(weapon === 'vajra' ? 180 : 420, 0.09, 'sawtooth', 0.05, 120);
   } else if (w.type === 'shot') {
     shots.push({ x, y, vx: Math.cos(a) * w.speed, vy: Math.sin(a) * w.speed, dmg, pierce: w.pierce, hit: new Set(), t: 1.2, ang: a });
@@ -310,11 +322,13 @@ function attack() {
       const mx = mcx(m), my = mcy(m), d = Math.hypot(mx - x, my - y);
       if (d < w.range + m.r) hurt(m, dmg, (mx - x) / (d || 1), (my - y) / (d || 1), w.kb);
     }
+    for (const s of bshots) if (Math.hypot(s.x - x, s.y - y) < w.range + 10) { s.t = 0; burst(s.x, s.y, '#ffd6ec', 5, 80, true); }
     sfx(1200, 0.4, 'sine', 0.08, 900);
   }
 }
 let weakHintT = 0;
 function hurt(m, base, nx, ny, kb) {
+  if (m.type === 'boss' && (m.intro > 0 || m.trans > 0)) return;   // 보스 등장·단계가 바뀌는 연출 중에는 안 맞음
   let dmg = base;
   if (m.ghost && ghostWeak()) {
     dmg *= 0.2;
@@ -398,6 +412,7 @@ function kill(m) {
   burst(mcx(m), mcy(m), m.ghost ? '#cfe8ff' : '#a89f8c', m.elite ? 40 : 14, m.elite ? 220 : 130, m.ghost);
   if (m.ghost) for (let i = 0; i < 6; i++) parts.push({ x: mcx(m) + Math.random() * 20 - 10, y: mcy(m), vx: Math.random() * 20 - 10, vy: -40 - Math.random() * 60, t: 1.2, max: 1.2, color: '#e7f5ff', size: 3, glow: true });
   sfx(m.ghost ? 900 : 160, m.elite ? 0.8 : 0.25, 'sine', 0.1, m.ghost ? 200 : 60);
+  if (m.type === 'boss') bossDefeated();
 }
 
 // ===== 스킬 =====
@@ -424,6 +439,13 @@ function castSlot(i) {
       if (d < 210 + m.r) { m.slow = 2.5; hurt(m, 32, (mcx(m) - x) / (d || 1), (mcy(m) - y) / (d || 1), 80); }
     }
     sfx(300, 0.7, 'sawtooth', 0.06, 1400);
+  } else if (id === 'names') {
+    // 무명귀의 기술: 이름 글자 7개를 부채꼴로 날린다
+    for (let i = -3; i <= 3; i++) {
+      const an = a + i * 0.15;
+      shots.push({ x, y, vx: Math.cos(an) * 520, vy: Math.sin(an) * 520, dmg: 20, pierce: 2, hit: new Set(), t: 1.3, ang: an, ch: NAME_CHARS[Math.floor(Math.random() * NAME_CHARS.length)] });
+    }
+    sfx(500, 0.5, 'triangle', 0.08, 1000);
   } else if (id === 'charge') {
     P.dash = { vx: Math.cos(a) * 900, vy: Math.sin(a) * 900 * 0.7, t: 0.25, hit: new Set() };
     sfx(120, 0.3, 'sawtooth', 0.08, 60);
@@ -440,7 +462,9 @@ function damagePlayer(dmg, src) {
 function respawn() {
   const lost = Math.floor(pts.soul * 0.3);
   pts.soul -= lost;
-  const eliteLeft = mons.some(m => m.elite && !m.dead);
+  const eliteLeft = mons.some(m => m.elite && !m.dead && m.type !== 'boss');
+  // 보스와 싸우다 죽으면 그 단계부터 다시 (bossSaved 는 단계가 바뀔 때 저장됨)
+  boss = null; bshots = []; bhands = []; bdecoys = []; bflee = []; bossEaten = 0;
   mons = []; shots = []; effects = []; drops = [];
   // 죽으면 마지막 등불부터 앞쪽 구간의 몬스터가 처음부터 다시 나온다
   for (const s in segSpawned) if (+s >= lastSave) delete segSpawned[s];
@@ -632,10 +656,34 @@ function openTalk(n) {
 }
 function closeTalk() { talking = null; after.classList.add('hide'); }
 document.getElementById('back').onclick = closeTalk;
+// 무명귀를 잡은 뒤에는 시민들이 이름을 되찾고 하는 말이 바뀐다
+const AFTER_LINES = {
+  '문지기 혼령': ['남문이 열렸다는 소문이 여기까지 왔다. 네가 했다지?', '이승으로 가든 저승길을 더 가든, 이제 네 마음이다.'],
+  '꼬마 유령': ['내 이름 찾았어! 순이야. 순이!', '…근데 술래잡기는 여전히 안 할 거지?'],
+  '떡집 할머니': ['이름을 되찾고 나니 떡 맛이 기억나는구나. 하나 먹고 가거라.', '이번엔 먹어도 아무것도 안 지워진단다. 정말이야.'],
+  '길 잃은 선비': ['이제 생각났소. 내 이름이 무엇이었는지 다 생각났소!', '과거 시험은 놓쳤지만, 이름은 되찾았으니 됐소.'],
+  '우물가 아낙': ['우물에서 날 부르던 목소리, 무명귀였나 봐. 이제 조용해.', '내 이름도 돌아왔어. 너무 오래돼서 낯설지만.'],
+  '이름 모를 망자': ['…', '이제 이름이 생겼어. 아직 입에 안 붙지만.', '고마워. 너도 네 이름 잊지 마.'],
+  '등불지기': ['오늘 밤은 등불이 유난히 밝아. 이름 하나하나가 불이 됐거든.', '저승길은 아직 끝이 없어. 놈들도 아직 남았고.'],
+  '고양이 영혼': ['야옹!', '(꼬리 두 개가 신나게 흔들린다)'],
+  '뱃사공': ['강 밑에서 올려다보던 눈들이 사라졌어. 무명귀의 눈이었나 봐.', '넌 아직 건널 때가 아니야. 그건 그대로지.'],
+  '장독 할아버지': ['장맛이 돌아왔어! 이름도 돌아왔고.'],
+  '마당 쓰는 아이': ['낙엽이 이제 안 쌓여. 이승에서 누가 우리 이름을 불러 줬나 봐.'],
+  '빨래하는 혼령': ['오늘은 빨래가 말랐어. 해는 안 떴는데, 신기하지?'],
+  '탑 도는 망자': ['백 바퀴째야.', '…소원? 이미 이루어졌어. 네 덕분에.'],
+  '연등 다는 혼령': ['아무도 기억 못 하던 이름들이 돌아와서, 오늘은 연등이 조금 덜 밝아.', '좋은 거야. 기억되는 이름은 그렇게 타지 않거든.'],
+  '숨바꼭질 꼬마': ['찾았다! 내 친구, 무명귀 뱃속에 숨어 있었대.', '이제 같이 놀 수 있어.'],
+  '스님 혼령': ['종을 쳤다. 길 잃은 넋들이 많이도 돌아왔구나.', '무명귀도 한때는 이름 없는 넋이었을 게다. 명복을 빌어 주자.'],
+  '종지기': ['어젯밤엔 종을 두 번 쳤어. 축하하느라.', '…괜찮았어. 아무 일도 없었어. 아마.'],
+  '주모': ['오늘은 내가 한턱낸다! 마셔도 아무것도 안 흐려지는 술로.', '…넌 그래도 마시지 마. 아직 산 사람이잖아.'],
+  '술 취한 선비': ['무명귀를 잡은 게 나였던가… 아, 너였지. 한잔해!'],
+  '남문 문지기': ['남문이 열렸다. 저 너머로 끝없는 저승길이 이어진다.', '더 가고 싶으면 언제든 가라. 마을 입구의 문으로 나가면 된다.'],
+};
+const chatLines = c => (bossDone && AFTER_LINES[c.name]) || c.lines;
 function openChat(c) { chat = { c, i: 0 }; c.f = AP.x > c.x ? 1 : -1; sfx(440, 0.2, 'sine', 0.05, 520); }
 function nextChat() {
   chat.i++;
-  if (chat.i >= chat.c.lines.length) chat = null;
+  if (chat.i >= chatLines(chat.c).length) chat = null;
   else sfx(440, 0.15, 'sine', 0.04, 500);
 }
 // 가까이 있는 상대: 상점 NPC 이름(문자열), 'portal', 또는 시민(객체)
@@ -684,6 +732,17 @@ function updateAfterlife(dt) {
     if (Math.abs(dist) < 1.5 && Math.abs(c.v) < 4) {
       c.wait -= dt;
       if (c.wait <= 0) { c.tx = c.hx + (Math.random() * 2 - 1) * c.range; c.wait = 1.5 + Math.random() * 3; }
+    }
+  }
+  // 무명귀를 아직 못 잡았으면 남문 쪽에서 쾅쾅 소리가 난다 (가까울수록 크게)
+  gateShake = Math.max(0, gateShake - dt * 3);
+  if (lastSave >= BOSS_SAVE && !bossDone) {
+    AP.knockT = (AP.knockT ?? 2) - dt;
+    if (AP.knockT <= 0) {
+      AP.knockT = 2.4 + Math.random();
+      const near = clamp(1 - Math.hypot(AP.x - AW / 2, AP.y - 2500) / 1800, 0.08, 1);
+      gateShake = 1; sfx(70, 0.25, 'square', 0.22 * near, 40);
+      setTimeout(() => sfx(70, 0.25, 'square', 0.2 * near, 40), 330);
     }
   }
   P.moving = false;
@@ -761,6 +820,7 @@ function update(dt) {
     P.x += 70 * dt; P.moving = true; stepWalk(70 / P.speed, dt); cam.x = P.x - W * 0.38;
     return;
   }
+  if (state === 'ending') { ending.t += dt; parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.t -= dt; }); parts = parts.filter(p => p.t > 0); return; }
   if (state !== 'play') return;
 
   P.atkCd -= dt; P.inv -= dt; P.slow -= dt; P.shield -= dt; hurtFlash -= dt; weakHintT -= dt;
@@ -806,13 +866,20 @@ function update(dt) {
     }
   }
   P.sp = Math.min(P.maxSp, P.sp + P.spRegen * (z ? 3 : 1) * dt);
-  if (backOK && P.x - cam.x < W * 0.3) cam.x = Math.max(0, P.x - W * 0.3);
-  cam.x = Math.max(cam.x, P.x - W * 0.38);
+  if (!boss) {
+    if (backOK && P.x - cam.x < W * 0.3) cam.x = Math.max(0, P.x - W * 0.3);
+    cam.x = Math.max(cam.x, P.x - W * 0.38);
+  }
+  // 보스: 남문 앞에 오면 싸움 시작. 싸우는 동안은 화면 한 칸 안에 갇히고, 잡기 전에는 남문 너머로 못 간다
+  if (!bossDone && !boss && P.x > BX0 + 140) startBoss();
+  if (boss) { P.x = clamp(P.x, BX0 + 30, BX1 - 30); cam.x += (BX0 - cam.x) * ease(5, dt); }
+  else if (!bossDone && P.x > BX1 - 30) P.x = BX1 - 30;
+  if (endingDelay > 0) { endingDelay -= dt; if (endingDelay <= 0) { state = 'ending'; ending = { t: 0 }; mouse.down = false; } }
 
   if (mouse.down) attack();
 
-  // 몬스터 나오기
-  if (!z) {
+  // 몬스터 나오기 (보스 자리 근처에서는 안 나옴)
+  if (!z && !inBossArea()) {
     spawnT -= dt;
     if (spawnT <= 0) { spawnT = Math.max(0.55, 2.4 - P.x / 3000) * (0.7 + Math.random() * 0.6); trySpawn(); }
     if (P.x > nextElite) spawnElite();
@@ -823,6 +890,7 @@ function update(dt) {
   for (const m of mons) {
     if (m.dead) continue;
     if (m.elite) eliteAlive = true;
+    if (m.type === 'boss') { updateBoss(m, dt); continue; }
     m.t += dt; m.flash -= dt; m.slow -= dt;
     if (m.fade < 1 && m.vanish == null) m.fade = Math.min(1, m.fade + dt * 0.9);
     const dx = P.x - m.x, dy = P.y - m.y, d = Math.hypot(dx, dy) || 1;
@@ -967,9 +1035,10 @@ function update(dt) {
     }
   }
   shots = shots.filter(s => s.t > 0);
+  updateBossThings(dt);
   // 포인트: 줍기, 그리고 가끔 길에 저절로 떨어져 있는 것
   updateDrops(dt);
-  if (!z) {
+  if (!z && !inBossArea()) {
     natT -= dt;
     if (natT <= 0) {
       natT = 5 + Math.random() * 6;
@@ -982,6 +1051,432 @@ function update(dt) {
   texts.forEach(t => { t.y -= 30 * dt; t.t -= dt; }); texts = texts.filter(t => t.t > 0);
 
   if (P.hp <= 0) { P.hp = 0; state = 'dead'; mouse.down = false; sfx(110, 1.5, 'sine', 0.15, 40); }
+}
+
+// ===== 최종 보스: 무명귀 (이름을 먹는 악귀) =====
+// 5번째 등불 너머, 마을 남문 앞에서 문을 두드리고 있다.
+//   1단계 (체력 100~66%): 남문 앞. 긴 팔 휘두르기 · 이름 글자 날리기 · 눈알 혼령 부르기
+//   2단계 (66~33%)      : 어둠 속으로 숨는다. 몸은 거의 안 보이고, 가짜 눈들 사이에서 진짜 눈을 찾아야 한다. 땅에서 손이 솟는다
+//   3단계 (33~0%)       : 남문을 부수고 마을로 쳐들어간다. 시민들이 도망가고, 무명귀가 화면의 글자(이름)를 하나씩 먹는다
+// 죽으면 그 단계부터 다시 시작한다.
+const BOSS_SAVE = 5;                                  // 5번째 등불 다음이 보스 자리
+const BX0 = BOSS_SAVE * SAVE_GAP + SAVE_W + 320;      // 싸우는 곳 왼쪽 끝
+const BX1 = BX0 + W;                                  // 싸우는 곳 오른쪽 끝 (화면 한 칸)
+const GATE_X = BX1 - 170;                             // 남문 자리
+MON.boss = { name: '무명귀', hp: 2600, speed: 34, dmg: 18, r: 58, ghost: true, elite: true, drop: { soul: 120, tear: 15, grudge: 10 }, unique: 'mask' };
+UNIQUES.mask = { name: '무명귀의 가면', from: '무명귀' };
+SKILLS.names = { name: '이름 부르기', cd: 8, cost: 25, price: { tear: 8 }, need: 'mask', desc: '이름 글자 7개를 부채꼴로 날림 (무명귀의 기술)' };
+// 난이도: 공격마다 피해량 · 단계마다 공격 사이 쉬는 시간(초)
+const BOSS_DMG = { sweep: 28, name: 12, hand: 24, grab: 20 };
+const BOSS_REST = [0, 1.1, 0.9, 0.65];
+const NAME_CHARS = '순복길덕분옥점남말개동철영숙자봉쇠막춘금'.split('');
+const EAT_LABELS = ['체력', '영력', '혼불', '망자의 눈물', '원념 조각'];   // 3단계에서 먹히는 글자 순서
+// 보스 상태 (newGame 보다 먼저 쓰일 수 있어서 var)
+var boss = null, bossDone = false, bossSaved = 1, bossScene = 'gate', bossEaten = 0;
+var bshots = [], bhands = [], bdecoys = [], bflee = [], gateShake = 0, endingDelay = 0, ending = null;
+function resetBoss() {
+  boss = null; bossDone = false; bossSaved = 1; bossScene = 'gate'; bossEaten = 0;
+  bshots = []; bhands = []; bdecoys = []; bflee = []; gateShake = 0; endingDelay = 0; ending = null;
+}
+const eatName = (i, text) => (boss && bossEaten > i ? '???' : text);
+const inBossArea = () => !bossDone && P.x > BX0 - 500;
+
+function startBoss() {
+  mons = []; shots = []; bshots = []; bhands = []; bflee = [];
+  const m = spawnMonster('boss', bossSaved === 1 ? GATE_X - 50 : (BX0 + BX1) / 2 + 160, (ROAD_TOP + ROAD_BOT) / 2 - 10);
+  m.maxHp = MON.boss.hp; m.hp = m.maxHp * [1, 1, 0.66, 0.33][bossSaved]; m.dmg = MON.boss.dmg;
+  m.fade = 1; m.phase = bossSaved; m.act = null; m.cd = 1.6; m.trans = 0; m.eatT = 5; m.tpT = 4;
+  m.intro = bossSaved === 1 ? 3.4 : 1.2;   // 처음엔 문을 두드리다가 돌아본다 (이때는 안 맞음)
+  m.face = bossSaved === 1 ? 1 : -1; m.fs = m.face;
+  bossScene = bossSaved >= 3 ? 'village' : 'gate';
+  bdecoys = []; if (bossSaved === 2) makeDecoys();
+  boss = m;
+  msg(bossSaved === 1 ? '쾅… 쾅… 누군가 남문을 두드리고 있다' : `무명귀 ${bossSaved}단계부터 다시`, 3, '#ff9aa8');
+}
+function makeDecoys() {
+  bdecoys = [];
+  for (let i = 0; i < 8; i++) bdecoys.push({ x: BX0 + 90 + Math.random() * (W - 180), y: ROAD_TOP + 60 + Math.random() * (ROAD_BOT - ROAD_TOP - 60), seed: Math.random(), t: Math.random() * 9 });
+}
+function knock() {
+  gateShake = 1;
+  sfx(70, 0.25, 'square', 0.22, 40); sfx(140, 0.12, 'triangle', 0.08, 60);
+  burst(GATE_X, ROAD_TOP - 30, '#6b6058', 5, 60);
+}
+function toPhase(m, p) {
+  m.phase = p; bossSaved = p; m.act = null; m.trans = p === 3 ? 2.4 : 1.4; m.vanish = null; m.fade = 1;
+  if (p === 2) { msg('무명귀가 어둠 속으로 숨는다… 진짜 눈을 찾아라', 3.5, '#d0bfff'); makeDecoys(); sfx(200, 1.4, 'sine', 0.1, 60); }
+  if (p === 3) { msg('무명귀가 남문을 부수고 마을로 쳐들어간다!', 3.5, '#ff8fa3'); sfx(90, 1.2, 'sawtooth', 0.12, 30); }
+}
+function bossAct(m, kind) {
+  const p = m.phase;
+  const T = { sweep: [p === 3 ? 0.7 : 0.95, 0.18, 0.6], names: [0.6, 0.15, 0.7], hands: [0.35, 0.1, 1.1], eyes: [0.5, 0.1, 0.6], grab: [0.85, 0.25, 0.7] }[kind];
+  m.face = P.x >= m.x ? 1 : -1;
+  m.act = { kind, phase: 'wind', t: T[0], T, ang: Math.atan2(P.y - 28 - (m.y - 110), P.x - m.x), done: false };
+  if (kind === 'sweep' || kind === 'grab') sfx(60, 0.5, 'sawtooth', 0.05, 45);
+}
+function chooseBossAct(m) {
+  const p = m.phase, opts = [];
+  const near = Math.abs(P.x - m.x) < 260 && Math.abs(P.y - m.y) < 110;
+  if (near) opts.push(['sweep', 3]);
+  opts.push(['names', p === 2 ? 2 : 3]);
+  if (p >= 2) opts.push(['hands', 3]);
+  if (p === 1 && mons.filter(o => o.type === 'wisp').length < 3) opts.push(['eyes', 1]);
+  if (p === 3) opts.push(['grab', 2]);
+  const pool = opts.filter(o => o[0] !== m.lastAct || opts.length === 1);
+  let r = Math.random() * pool.reduce((s, o) => s + o[1], 0);
+  for (const [k, wgt] of pool) { r -= wgt; if (r <= 0) { m.lastAct = k; return bossAct(m, k); } }
+}
+function fireName(x, y, ang, spd) {
+  bshots.push({ x, y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, ch: NAME_CHARS[Math.floor(Math.random() * NAME_CHARS.length)], t: 4.5 });
+}
+function eatOne() {
+  if (bossEaten >= EAT_LABELS.length) return;
+  msg(`무명귀가 「${EAT_LABELS[bossEaten]}」라는 이름을 먹었다`, 2.2, '#ff8fa3');
+  bossEaten++;
+  sfx(300, 0.6, 'sine', 0.06, 80);
+}
+function bossStrike(m, a) {
+  const cx = m.x, cy = m.y - 110;
+  if (a.kind === 'sweep') {
+    effects.push({ kind: 'mslash', x: m.x, y: m.y - 70, ang: m.face > 0 ? 0 : Math.PI, range: 230, t: 0.3, max: 0.3, color: '200,170,255' });
+    const hdx = P.x - m.x;
+    if (Math.abs(P.y - m.y) < 95 && hdx * m.face > -50 && Math.abs(hdx) < 250) damagePlayer(BOSS_DMG.sweep * (m.phase === 3 ? 1.2 : 1), m);
+    sfx(110, 0.25, 'sawtooth', 0.08, 50);
+  } else if (a.kind === 'names') {
+    const spd = m.phase === 3 ? 205 : 170;
+    if (m.phase === 3) for (let i = 0; i < 12; i++) fireName(cx, cy, i / 12 * Math.PI * 2 + m.t, spd * 0.8);
+    for (let i = -2; i <= 2; i++) if (m.phase !== 3 || Math.abs(i) <= 1) fireName(cx, cy, a.ang + i * 0.22, spd);
+    sfx(500, 0.5, 'triangle', 0.05, 900);
+  } else if (a.kind === 'hands') {
+    const n = m.phase === 3 ? 5 : 3;
+    for (let i = 0; i < n; i++) {
+      const hx = i === 0 ? P.x : clamp(P.x + (Math.random() * 2 - 1) * 240, BX0 + 30, BX1 - 30);
+      const hy = i === 0 ? P.y : clamp(P.y + (Math.random() * 2 - 1) * 70, ROAD_TOP + 20, ROAD_BOT);
+      bhands.push({ x: hx, y: hy, t: 1.0 + i * 0.08, life: 0.5, up: false });
+    }
+  } else if (a.kind === 'eyes') {
+    for (const s of [-1, 1]) spawnMonster('wisp', clamp(m.x + s * 70, BX0 + 40, BX1 - 40), clamp(m.y + s * 40, ROAD_TOP + 20, ROAD_BOT));
+  }
+}
+function updateBoss(m, dt) {
+  m.t += dt; m.flash -= dt; m.vx = m.vy = 0;
+  m.hover = 18 + Math.sin(m.t * 1.5) * 8;
+  const dx = P.x - m.x, dy = P.y - m.y;
+  // 등장 연출: 문을 두드리다가 천천히 돌아본다
+  if (m.intro > 0) {
+    m.intro -= dt;
+    if (bossSaved === 1 && m.intro > 1.3) { m.face = 1; m.knockT = (m.knockT ?? 0.3) - dt; if (m.knockT <= 0) { m.knockT = 0.62; knock(); } }
+    else m.face = dx >= 0 ? 1 : -1;
+    if (m.intro <= 0) msg('무명귀 · 이름을 먹는 악귀', 3, '#ff9aa8');
+    m.fs += (m.face - m.fs) * ease(5, dt);
+    return;
+  }
+  // 단계 넘어가기 (넘어가는 동안은 안 맞음)
+  const ratio = m.hp / m.maxHp;
+  if (m.phase === 1 && ratio <= 0.66) toPhase(m, 2);
+  else if (m.phase === 2 && ratio <= 0.33) toPhase(m, 3);
+  if (m.trans > 0) {
+    m.trans -= dt;
+    if (m.phase === 3 && m.trans < 1.3 && bossScene !== 'village') {
+      // 남문이 부서지고 마을 안으로
+      bossScene = 'village'; bdecoys = []; gateShake = 2;
+      burst(GATE_X, ROAD_TOP - 30, '#7a4a30', 40, 260);
+      sfx(50, 1.0, 'square', 0.25, 25);
+      for (let i = 0; i < 8; i++) bflee.push({ x: BX0 + Math.random() * W, y: ROAD_TOP + 6 + Math.random() * 26, v: 110 + Math.random() * 80, seed: Math.random(), say: Math.random() < 0.4 });
+      m.x = (BX0 + BX1) / 2 + 200;
+    }
+    m.fs += (m.face - m.fs) * ease(8, dt);
+    return;
+  }
+  // 2단계: 가끔 사라졌다가 다른 곳에 나타난다
+  if (m.phase === 2) {
+    m.tpT -= dt;
+    if (m.tpT <= 0 && !m.act && m.vanish == null) m.vanish = 0.5;
+    if (m.vanish != null) {
+      m.vanish -= dt; m.fade = Math.max(0, m.vanish / 0.5);
+      if (m.vanish <= 0) {
+        const side = Math.random() < 0.5 ? -1 : 1;
+        m.x = clamp(P.x + side * (200 + Math.random() * 120), BX0 + 80, BX1 - 80);
+        m.y = clamp(ROAD_TOP + 40 + Math.random() * (ROAD_BOT - ROAD_TOP - 60), ROAD_TOP + 40, ROAD_BOT);
+        m.vanish = null; m.fade = 0; m.tpT = 4.5 + Math.random() * 2;
+      }
+      return;
+    }
+    if (m.fade < 1) m.fade = Math.min(1, m.fade + dt * 1.8);
+  }
+  // 걸어서 다가오기 (너무 가까이는 안 옴)
+  if (!m.act && m.phase !== 2) {
+    const spd = m.phase === 3 ? 62 : 34;
+    if (Math.abs(dx) > 160) m.x += Math.sign(dx) * spd * dt;
+    m.y += clamp(dy, -1, 1) * Math.min(Math.abs(dy), spd * 0.6 * dt);
+    m.face = dx >= 0 ? 1 : -1;
+  }
+  m.x = clamp(m.x, BX0 + 60, BX1 - 60); m.y = clamp(m.y, ROAD_TOP + 30, ROAD_BOT);
+  // 공격
+  m.cd -= dt;
+  if (!m.act && m.cd <= 0 && m.fade > 0.9) chooseBossAct(m);
+  const a = m.act;
+  if (a) {
+    a.t -= dt;
+    if (a.phase === 'wind') { if (a.t <= 0) { a.phase = 'hit'; a.t = a.T[1]; bossStrike(m, a); } }
+    else if (a.phase === 'hit') {
+      if (a.kind === 'grab' && !a.done) {
+        const ex = m.x + Math.cos(a.ang) * 380, ey = m.y - 110 + Math.sin(a.ang) * 380;
+        if (segDist(P.x, P.y - 28, m.x, m.y - 110, ex, ey) < 26) {
+          a.done = true; damagePlayer(BOSS_DMG.grab, m); P.slow = 1.5;
+          msg('무명귀가 너의 이름을 부른다…', 1.8, '#ff8fa3'); eatOne();
+        }
+      }
+      if (a.t <= 0) { a.phase = 'rec'; a.t = a.T[2]; }
+    } else if (a.t <= 0) { m.act = null; m.cd = BOSS_REST[m.phase]; }
+  }
+  // 3단계: 시간이 지날수록 화면의 이름(글자)을 하나씩 먹는다
+  if (m.phase === 3) { m.eatT -= dt; if (m.eatT <= 0) { m.eatT = 9; eatOne(); } }
+  m.fs += (m.face - m.fs) * ease(8, dt);
+}
+// 보스가 날린 글자 · 땅에서 솟는 손 · 가짜 눈 · 도망가는 시민
+function updateBossThings(dt) {
+  gateShake = Math.max(0, gateShake - dt * 3);
+  for (const s of bshots) {
+    s.x += s.vx * dt; s.y += s.vy * dt; s.t -= dt;
+    if (s.y < ROAD_TOP - 160 || s.y > H + 20) s.t = 0;
+    if (s.t > 0 && Math.hypot(P.x - s.x, P.y - 28 - s.y) < 18) { s.t = 0; damagePlayer(BOSS_DMG.name, { x: s.x, y: s.y }); }
+  }
+  bshots = bshots.filter(s => s.t > 0);
+  for (const h of bhands) {
+    if (!h.up) {
+      h.t -= dt;
+      if (h.t <= 0) {
+        h.up = true; sfx(90, 0.2, 'square', 0.06, 50);
+        if (Math.abs(P.x - h.x) < 40 && Math.abs(P.y - h.y) < 24) damagePlayer(BOSS_DMG.hand, { x: h.x, y: h.y + 30 });
+      }
+    } else h.life -= dt;
+  }
+  bhands = bhands.filter(h => h.life > 0);
+  for (const d of bdecoys) d.t += dt;
+  for (const c of bflee) c.x += c.v * dt;
+  bflee = bflee.filter(c => c.x < BX1 + 300);
+}
+// 보스를 잡았을 때
+function bossDefeated() {
+  bossDone = true; boss = null; bossEaten = 0;
+  bshots = []; bhands = []; bdecoys = [];
+  nextElite = Math.max(nextElite, BX1 + 2500);
+  msg('먹혔던 이름들이 풀려난다…', 3, '#ffe8a3');
+  endingDelay = 3.2;
+  for (let i = 0; i < 30; i++) parts.push({ x: BX0 + Math.random() * W, y: ROAD_TOP + Math.random() * 260, vx: Math.random() * 20 - 10, vy: -30 - Math.random() * 50, t: 3, max: 3, color: '#ffe8a3', size: 2 + Math.random() * 2, glow: true });
+}
+
+// --- 엔딩 ---
+const ENDING_LINES = [
+  '무명귀가 흩어지자, 먹혔던 이름들이 반딧불처럼 하늘로 떠올랐다.',
+  '떡집 할머니의 이름, 뱃사공의 이름, 이름 모를 망자의 이름까지.',
+  '이름을 되찾은 넋들은 저마다 제 이름을 소리 내어 불러 보았다.',
+  '닫혀 있던 남문이 열렸다. 그 너머의 저승길은 끝이 보이지 않는다.',
+  '퇴마사여, 네 이름은 아직 네 것이다.',
+];
+const ENDING_LINE_T = 2.6;
+const endingChoicesShown = () => ending && ending.t > ENDING_LINES.length * ENDING_LINE_T + 0.6;
+const ENDING_BTNS = [{ x: W / 2 - 250, y: 410, w: 230, h: 50, text: '[1] 엔드리스 계속하기' }, { x: W / 2 + 20, y: 410, w: 230, h: 50, text: '[2] 엔드리스 안 하기 (마을로)' }];
+function endingChoose(i) {
+  ending = null;
+  if (i === 0) { state = 'play'; msg('엔드리스 · 끝없는 저승길', 3, '#ffe8a3'); }
+  else { state = 'play'; enterAfterlife(); msg('남문이 열렸다 · 마을에 이름들이 돌아왔다', 3, '#ffe8a3'); }
+}
+function drawEnding() {
+  const t = ending.t;
+  ctx.fillStyle = `rgba(3,2,8,${Math.min(0.88, t * 0.5)})`; ctx.fillRect(0, 0, W, H);
+  // 하늘로 떠오르는 이름 글자들
+  ctx.textAlign = 'center';
+  for (let i = 0; i < 40; i++) {
+    const x = hash(i, 200) * W, y = H + 40 - ((t * (25 + hash(i, 201) * 30) + hash(i, 202) * H) % (H + 80));
+    ctx.globalAlpha = 0.1 + 0.18 * Math.abs(Math.sin(t + i)); ctx.font = `${14 + hash(i, 203) * 10}px ${FONT}`; ctx.fillStyle = '#ffe8a3';
+    ctx.fillText(NAME_CHARS[i % NAME_CHARS.length], x, y);
+  }
+  ctx.globalAlpha = 1;
+  ENDING_LINES.forEach((line, i) => {
+    const a = clamp((t - i * ENDING_LINE_T) / 1.2, 0, 1);
+    if (a <= 0) return;
+    ctx.globalAlpha = a; ctx.font = `${i === ENDING_LINES.length - 1 ? 'bold 20' : '16'}px ${FONT}`;
+    ctx.fillStyle = i === ENDING_LINES.length - 1 ? '#ffe8a3' : '#e8ddff';
+    ctx.fillText(line, W / 2, 120 + i * 44);
+  });
+  ctx.globalAlpha = 1;
+  if (endingChoicesShown()) {
+    for (const b of ENDING_BTNS) {
+      const hover = mouse.x > b.x && mouse.x < b.x + b.w && mouse.y > b.y && mouse.y < b.y + b.h;
+      ctx.fillStyle = hover ? 'rgba(80,200,190,0.35)' : 'rgba(10,30,32,0.9)'; ctx.fillRect(b.x, b.y, b.w, b.h);
+      ctx.strokeStyle = '#7ee8da'; ctx.lineWidth = 1.5; ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w, b.h);
+      ctx.fillStyle = '#e6fffb'; ctx.font = `bold 15px ${FONT}`; ctx.fillText(b.text, b.x + b.w / 2, b.y + 31);
+    }
+    ctx.fillStyle = '#9fb8b4'; ctx.font = `12px ${FONT}`;
+    ctx.fillText('엔드리스를 안 해도, 나중에 마을의 이승 문으로 나가면 언제든 남문 너머 저승길을 계속 갈 수 있어요', W / 2, 490);
+  }
+}
+
+// --- 보스 그리기 ---
+function drawBossArena() {
+  if (cam.x + W < BX0 - 700 || cam.x > BX1 + 700) return;
+  const b = ROAD_TOP + 2, sx = BX0 - 700 - cam.x, ex = BX1 + 700 - cam.x;
+  if (bossScene === 'village') {
+    // 부서진 남문 안쪽: 마을의 집들
+    VB = b;
+    [[BX0 - 380, 150, 58, 61], [BX0 - 120, 160, 64, 62], [BX0 + 150, 170, 66, 63], [BX0 + 420, 150, 60, 64], [BX0 + 700, 230, 76, 65], [BX1 + 60, 160, 62, 66], [BX1 + 330, 150, 60, 67]]
+      .forEach(([x, w, h, s]) => { const X = x - cam.x; if (X > -200 && X < W + 200) drawHouse(X, w, h, s); });
+    const sx2 = BX0 + 700 - cam.x; if (sx2 > -200 && sx2 < W + 200) sign(sx2, b - 112, '저승 주막');
+    return;
+  }
+  // 돌담과 남문
+  const top = b - 90;
+  ctx.fillStyle = '#262c2c'; ctx.fillRect(sx, top, ex - sx, 90);
+  ctx.strokeStyle = '#1c2222'; ctx.lineWidth = 1;
+  for (let r = 0; r < 6; r++) for (let x = Math.floor((sx + cam.x) / 40) * 40 - cam.x; x < ex; x += 40) ctx.strokeRect(x + (r % 2) * 20, top + r * 15, 40, 15);
+  ctx.fillStyle = '#121b1d'; ctx.fillRect(sx, top - 10, ex - sx, 12);
+  const gx = GATE_X - cam.x + (gateShake > 0 ? Math.sin(time * 80) * 3 * gateShake : 0);
+  ctx.fillStyle = '#5a2620'; ctx.fillRect(gx - 55, b - 112, 110, 112);
+  ctx.fillStyle = '#3a1814'; ctx.fillRect(gx - 1, b - 112, 2, 112);
+  ctx.fillStyle = '#b8a070'; for (let r = 0; r < 5; r++) for (const s of [-1, 1]) for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(gx + s * (13 + k * 14), b - 98 + r * 22, 2, 0, 7); ctx.fill(); }
+  ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(gx - 12, b - 56); ctx.lineTo(gx + 12, b - 56); ctx.stroke();
+  // 문틈으로 새어 나오는 마을 불빛
+  glows.push(() => { ctx.fillStyle = `rgba(160,255,235,${0.25 + 0.1 * Math.sin(time * 2)})`; ctx.fillRect(gx - 1.5, b - 110, 3, 108); });
+  giwaRoof(gx, 150, b - 112, 1);
+  sign(gx, b - 150, '저승 마을 남문');
+}
+function drawBossGround() {
+  // 땅에서 솟을 자리 (어두운 원) — 사람보다 먼저 그림
+  for (const h of bhands) {
+    if (h.up) continue;
+    const x = h.x - cam.x, k = clamp(1 - h.t, 0, 1);
+    ctx.fillStyle = `rgba(30,0,20,${0.35 + 0.35 * k})`; ctx.beginPath(); ctx.ellipse(x, h.y, 38, 15, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = `rgba(200,80,140,${0.3 + 0.5 * k})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.ellipse(x, h.y, 38 * (1.2 - k * 0.2), 15 * (1.2 - k * 0.2), 0, 0, 7); ctx.stroke();
+    lights.push({ x, y: h.y, r: 50, a: 0.3 * k });
+  }
+  // 도망가는 시민들
+  for (const c of bflee) {
+    const x = c.x - cam.x, y = c.y, run = Math.sin(time * 14 + c.seed * 9);
+    if (x < -40 || x > W + 40) continue;
+    ctx.save(); ctx.globalAlpha = 0.75; ctx.translate(x, y);
+    const g = ctx.createLinearGradient(0, -40, 0, 4); g.addColorStop(0, 'rgba(210,220,215,1)'); g.addColorStop(1, 'rgba(210,220,215,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.moveTo(-7, -34); ctx.lineTo(7, -34); ctx.lineTo(12 + run * 3, 4); ctx.lineTo(-12 + run * 3, 4); ctx.fill();
+    ctx.fillStyle = 'rgba(220,228,225,1)'; ctx.beginPath(); ctx.arc(2, -41, 7, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(210,220,215,1)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-5, -30); ctx.lineTo(-12, -48 + run * 3); ctx.moveTo(5, -30); ctx.lineTo(12, -48 - run * 3); ctx.stroke();   // 두 팔을 들고 달아남
+    ctx.restore();
+    if (c.say) { ctx.font = `11px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = 'rgba(255,200,200,0.8)'; ctx.fillText('도망가!', x, y - 56); }
+  }
+}
+function drawBossTop() {
+  // 땅에서 솟은 손
+  for (const h of bhands) {
+    if (!h.up) continue;
+    const x = h.x - cam.x, k = clamp(h.life / 0.5, 0, 1), rise = (1 - Math.pow(1 - Math.min(1, (0.5 - h.life) * 6), 2)) * 46 * k;
+    ctx.fillStyle = 'rgba(200,200,215,0.9)';
+    for (const s of [-1, 1]) {
+      ctx.save(); ctx.translate(x + s * 12, h.y); ctx.rotate(s * 0.25);
+      ctx.fillRect(-4, -rise, 8, rise);
+      for (let f = 0; f < 4; f++) ctx.fillRect(-5 + f * 3, -rise - 12, 2, 12);
+      ctx.restore();
+    }
+  }
+  // 날아오는 이름 글자 (어둠 위에 빛나게)
+  for (const s of bshots) {
+    const x = s.x - cam.x, y = s.y;
+    glows.push(() => {
+      warmGlowPlay(x, y, 20, '220,120,180', 0.5);
+      ctx.font = `bold 18px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = '#ffd6ec'; ctx.fillText(s.ch, x, y + 6);
+    });
+    lights.push({ x, y, r: 40, a: 0.4 });
+  }
+  // 2단계 가짜 눈 (진짜 무명귀 눈과 똑같이 생김)
+  for (const d of bdecoys) {
+    if (blinking(d.seed)) continue;
+    const x = d.x - cam.x + Math.sin(d.t * 0.5 + d.seed * 9) * 14, y = d.y - 230 + Math.sin(d.t * 0.8 + d.seed * 5) * 6;
+    glows.push(() => eyeGlow([[x - 8, y], [x + 8, y]], '235,230,255', 2.6, 1));
+  }
+}
+function warmGlowPlay(x, y, r, rgb, a) {
+  const g = ctx.createRadialGradient(x, y, 0, x, y, r);
+  g.addColorStop(0, `rgba(${rgb},${a})`); g.addColorStop(1, `rgba(${rgb},0)`);
+  ctx.fillStyle = g; ctx.fillRect(x - r, y - r, r * 2, r * 2);
+}
+function drawBoss(m) {
+  const x = m.x - cam.x, y = m.y, f = m.fs ?? 1, t = m.t;
+  const hy = y - m.hover;
+  const a = m.act, T = a ? a.T : null;
+  let w = 0, hk = 0;
+  if (a && a.phase === 'wind') w = clamp(1 - a.t / T[0], 0, 1);
+  else if (a && a.phase === 'hit') { hk = clamp((T[1] - a.t) / Math.min(0.1, T[1]), 0, 1); w = 1 - hk; }
+  else if (a && a.phase === 'rec') hk = clamp(a.t / T[2], 0, 1);
+  const kind = a ? a.kind : null;
+  const shake = m.flash > 0 ? (Math.random() - 0.5) * 5 : 0;
+  const bodyA = m.fade * (m.phase === 2 ? (m.trans > 0 ? clamp(1 - (1.4 - m.trans) / 1, 0.14, 1) : 0.14) : 1);
+  ctx.save();
+  ctx.globalAlpha = bodyA;
+  shadow(x, y, 46);
+  ctx.translate(shake, 0);
+  // 너덜너덜한 긴 옷자락
+  const g = ctx.createLinearGradient(0, hy - 200, 0, hy + 10);
+  g.addColorStop(0, 'rgba(20,16,28,0.97)'); g.addColorStop(0.8, 'rgba(20,16,28,0.9)'); g.addColorStop(1, 'rgba(20,16,28,0)');
+  ctx.fillStyle = g;
+  ctx.beginPath(); ctx.moveTo(x - 24, hy - 185);
+  ctx.quadraticCurveTo(x - 40, hy - 100, x - 46 + Math.sin(t * 2) * 4, hy + 6);
+  for (let i = 0; i <= 8; i++) ctx.lineTo(x - 46 + i * 11.5, hy + 6 + Math.sin(t * 3 + i * 1.7) * 7 + (i % 2) * 9);
+  ctx.quadraticCurveTo(x + 40, hy - 100, x + 24, hy - 185); ctx.fill();
+  // 옷자락에 붙은 작은 눈들 (뜨고 감음)
+  for (let i = 0; i < 7; i++) {
+    const ex = x + (hash(i, 300) - 0.5) * 50, ey = hy - 40 - hash(i, 301) * 120, open = Math.max(0, Math.sin(t * (0.6 + hash(i, 302)) + i * 2)) * (m.phase === 3 ? 1 : 0.6);
+    ctx.fillStyle = 'rgba(230,225,240,0.85)'; ctx.beginPath(); ctx.ellipse(ex, ey, 4, 2.6 * open + 0.3, 0, 0, 7); ctx.fill();
+    if (open > 0.3) { ctx.fillStyle = '#300'; ctx.beginPath(); ctx.arc(ex + f, ey, 1.3, 0, 7); ctx.fill(); }
+  }
+  // 긴 팔: 평소엔 늘어뜨리고, 공격마다 자세가 이어서 바뀐다
+  const P2 = (ax, ay) => [x + ax, hy + ay];
+  let front = P2(f * 46, -30 + Math.sin(t * 1.3) * 6), back = P2(-f * 40, -26 + Math.sin(t * 1.1 + 1) * 6);
+  if (m.intro > 1.3 && bossSaved === 1) { const kn = Math.abs(Math.sin(t * 5.1)); front = P2(f * (70 + 40 * kn), -150 + 20 * kn); }
+  const mix = (p0, p1, k) => [lerp(p0[0], p1[0], k), lerp(p0[1], p1[1], k)];
+  if (kind === 'sweep') { front = mix(mix(front, P2(-f * 30, -270), w), P2(f * 240, -100), hk); }
+  else if (kind === 'names') { const k2 = Math.max(w, hk); front = mix(front, P2(f * 70, -250), k2); back = mix(back, P2(-f * 70, -250), k2); }
+  else if (kind === 'hands') { const k2 = Math.max(w, hk); front = mix(front, P2(f * 40, 8), k2); back = mix(back, P2(-f * 40, 8), k2); }
+  else if (kind === 'eyes') { const k2 = Math.max(w, hk); front = mix(front, P2(f * 110, -140), k2); back = mix(back, P2(-f * 110, -140), k2); }
+  else if (kind === 'grab') { front = mix(mix(front, P2(-f * 30, -180), w), [m.x - cam.x + Math.cos(a.ang) * 360, y - 110 + Math.sin(a.ang) * 360], hk); }
+  for (const [end, sh] of [[back, -1], [front, 1]]) {
+    const shx = x + f * sh * 20, shy = hy - 172;
+    ctx.strokeStyle = 'rgba(26,20,34,0.98)'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(shx, shy); ctx.quadraticCurveTo((shx + end[0]) / 2 + f * sh * 30, (shy + end[1]) / 2 - 20, end[0], end[1]); ctx.stroke();
+    const ang = Math.atan2(end[1] - shy, end[0] - shx);
+    ctx.strokeStyle = 'rgba(200,200,215,0.9)'; ctx.lineWidth = 2;   // 길고 하얀 손가락
+    for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(end[0], end[1]); ctx.lineTo(end[0] + Math.cos(ang + k * 0.22) * 22, end[1] + Math.sin(ang + k * 0.22) * 22); ctx.stroke(); }
+  }
+  // 얼굴 없는 하얀 가면
+  const mx = x + f * 2, my = hy - 205;
+  ctx.fillStyle = '#e8e4dc'; ctx.beginPath(); ctx.ellipse(mx, my, 22, 29, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#0c0a10'; ctx.beginPath(); ctx.ellipse(mx - 8, my - 3, 4.5, 3, 0, 0, 7); ctx.ellipse(mx + 8, my - 3, 4.5, 3, 0, 0, 7); ctx.fill();
+  if (m.phase >= 2) { ctx.strokeStyle = '#3a3238'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(mx + 4, my - 28); ctx.lineTo(mx + 1, my - 12); ctx.lineTo(mx + 6, my + 2); ctx.lineTo(mx + 2, my + 18); ctx.stroke(); }
+  if (m.phase === 3) for (let i = 0; i < 4; i++) { ctx.fillStyle = '#700'; ctx.beginPath(); ctx.arc(mx - 10 + i * 7, my + 12 + (i % 2) * 5, 1.6, 0, 7); ctx.fill(); }
+  ctx.restore();
+  // 진짜 눈 (어둠 위에 빛남) · 몸 주위를 도는 이름 글자
+  const eyeA = m.fade;
+  if (!blinking(m.seed) || (a && a.phase === 'wind')) {
+    const er = a && a.phase === 'wind' ? 3.6 : 2.6;
+    glows.push(() => eyeGlow([[mx - 8, my - 3], [mx + 8, my - 3]], '235,230,255', er, eyeA));
+  }
+  glows.push(() => {
+    ctx.font = `16px ${FONT}`; ctx.textAlign = 'center';
+    for (let i = 0; i < 9; i++) {
+      const an = t * 0.5 + i / 9 * Math.PI * 2, r = 80 + Math.sin(t + i) * 14;
+      ctx.fillStyle = `rgba(255,214,236,${0.35 * bodyA})`;
+      ctx.fillText(NAME_CHARS[i], x + Math.cos(an) * r, hy - 110 + Math.sin(an) * r * 0.5);
+    }
+  });
+  // 붙잡기 준비: 붉은 점선으로 방향을 보여 준다
+  if (kind === 'grab' && a.phase === 'wind') glows.push(() => {
+    ctx.strokeStyle = `rgba(255,60,90,${0.4 + 0.4 * Math.sin(time * 30)})`; ctx.lineWidth = 3; ctx.setLineDash([10, 8]);
+    ctx.beginPath(); ctx.moveTo(m.x - cam.x, y - 110); ctx.lineTo(m.x - cam.x + Math.cos(a.ang) * 380, y - 110 + Math.sin(a.ang) * 380); ctx.stroke(); ctx.setLineDash([]);
+  });
+  // 휘두르기 준비: 닿는 범위를 희미하게 보여 준다
+  if (kind === 'sweep' && a.phase === 'wind') glows.push(() => {
+    ctx.fillStyle = `rgba(200,120,255,${0.08 + 0.1 * w})`;
+    ctx.beginPath(); ctx.moveTo(x, y - 20); ctx.arc(x, y - 20, 250, f > 0 ? -0.35 : Math.PI - 0.35, f > 0 ? 0.35 : Math.PI + 0.35); ctx.fill();
+  });
+  lights.push({ x, y: hy - 120, r: 120, a: 0.25 * bodyA });
 }
 
 // ===== 그리기: 배경 =====
@@ -1200,6 +1695,7 @@ function drawWeaponInHand(hx, hy, a) {
   ctx.restore();
 }
 function drawMonster(m) {
+  if (m.type === 'boss') return drawBoss(m);
   const x = m.x - cam.x, y = m.y, f = m.fs ?? m.face ?? 1;
   const shake = m.flash > 0 ? (Math.random() - 0.5) * 4 : 0;
   // 공격 자세는 끊기지 않고 이어진다:
@@ -1365,8 +1861,8 @@ function darkAt(x, y) {
 function drawEffects() {
   for (const s of shots) {
     const x = s.x - cam.x;
-    ctx.save(); ctx.translate(x, s.y); ctx.rotate(s.ang + time * 20);
-    ctx.fillStyle = '#f2d16b'; ctx.fillRect(-4, -6, 8, 12); ctx.restore();
+    if (s.ch) { const ch = s.ch; glows.push(() => { ctx.font = `bold 18px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = '#fff3c4'; ctx.fillText(ch, x, s.y + 6); }); }
+    else { ctx.save(); ctx.translate(x, s.y); ctx.rotate(s.ang + time * 20); ctx.fillStyle = '#f2d16b'; ctx.fillRect(-4, -6, 8, 12); ctx.restore(); }
     glows.push(() => { const g = ctx.createRadialGradient(x, s.y, 0, x, s.y, 18); g.addColorStop(0, 'rgba(255,220,120,0.7)'); g.addColorStop(1, 'rgba(255,220,120,0)'); ctx.fillStyle = g; ctx.fillRect(x - 18, s.y - 18, 36, 36); });
     lights.push({ x, y: s.y, r: 60, a: 0.7 });
   }
@@ -1408,11 +1904,12 @@ function drawEffects() {
 function drawDarkness(eliteAlive) {
   dctx.globalCompositeOperation = 'source-over';
   dctx.clearRect(0, 0, W, H);
-  dctx.fillStyle = `rgba(4,2,10,${eliteAlive ? 0.9 : 0.82})`;
+  const dim = boss && boss.phase === 2;   // 무명귀 2단계: 더 깜깜하고 내 빛도 작아진다
+  dctx.fillStyle = `rgba(4,2,10,${dim ? 0.95 : eliteAlive ? 0.9 : 0.82})`;
   dctx.fillRect(0, 0, W, H);
   dctx.globalCompositeOperation = 'destination-out';
   // 영력이 많을수록 내 주변이 밝다
-  const pr = 140 + 130 * (P.sp / P.maxSp);
+  const pr = (140 + 130 * (P.sp / P.maxSp)) * (dim ? 0.65 : 1);
   const all = [{ x: P.x - cam.x, y: P.y - 30, r: pr, a: 1 }, ...lights];
   for (const l of all) {
     const g = dctx.createRadialGradient(l.x, l.y, 0, l.x, l.y, l.r);
@@ -1432,9 +1929,12 @@ function drawWorld() {
   lights = []; glows = []; texts2 = [];
   drawBackground();
   drawGround();
+  drawBossArena();
+  drawBossGround();
   const list = mons.map(m => ({ y: m.y, f: () => drawMonster(m) }));
   list.push({ y: P.y, f: () => drawPlayer(P.x - cam.x, P.y) });
   list.sort((a, b) => a.y - b.y).forEach(o => o.f());
+  drawBossTop();
   drawDrops();
   drawEffects();
   const eliteAlive = mons.some(m => m.elite);
@@ -1488,18 +1988,20 @@ function ptIcon(k, x, y) {
   else { ctx.beginPath(); ctx.moveTo(x, y - 8); ctx.lineTo(x + 6, y); ctx.lineTo(x, y + 7); ctx.lineTo(x - 6, y); ctx.fill(); }
 }
 function drawHUD() {
-  bar(20, 18, 230, 14, P.hp / P.maxHp, '#d6334a', `체력 ${Math.ceil(P.hp)} / ${P.maxHp}`);
+  // 무명귀 3단계에서는 글자(이름)가 하나씩 ??? 로 먹힌다
+  bar(20, 18, 230, 14, P.hp / P.maxHp, '#d6334a', `${eatName(0, '체력')} ${Math.ceil(P.hp)} / ${P.maxHp}`);
   const weak = ghostWeak();
-  bar(20, 40, 230, 12, P.sp / P.maxSp, weak ? (Math.floor(time * 4) % 2 ? '#5f3dc4' : '#3b2a7a') : '#3bc9db', `영력 ${Math.floor(P.sp)} / ${P.maxSp}`);
+  bar(20, 40, 230, 12, P.sp / P.maxSp, weak ? (Math.floor(time * 4) % 2 ? '#5f3dc4' : '#3b2a7a') : '#3bc9db', `${eatName(1, '영력')} ${Math.floor(P.sp)} / ${P.maxSp}`);
   if (weak) { ctx.fillStyle = '#b197fc'; ctx.font = `12px ${FONT}`; ctx.fillText('영력 부족 · 귀신에게 피해가 거의 안 들어감', 20, 68); }
   // 포인트
   ctx.textAlign = 'right'; ctx.font = `bold 14px ${FONT}`;
   let yy = 26;
-  for (const k of ['soul', 'tear', 'grudge']) {
-    ctx.fillStyle = PT_COLORS[k]; ctx.fillText(`${PT_NAMES[k]} ${pts[k]}`, W - 20, yy);
-    ptIcon(k, W - 32 - ctx.measureText(`${PT_NAMES[k]} ${pts[k]}`).width, yy - 5);
+  ['soul', 'tear', 'grudge'].forEach((k, i) => {
+    const label = `${eatName(2 + i, PT_NAMES[k])} ${pts[k]}`;
+    ctx.fillStyle = PT_COLORS[k]; ctx.fillText(label, W - 20, yy);
+    ptIcon(k, W - 32 - ctx.measureText(label).width, yy - 5);
     yy += 20;
-  }
+  });
   ctx.font = `12px ${FONT}`; ctx.fillStyle = '#ffd43b';
   for (const u in uniques) { ctx.fillText(`★ ${UNIQUES[u].name}`, W - 20, yy); yy += 16; }
   // 거리
@@ -1508,13 +2010,17 @@ function drawHUD() {
   const nextSave = (Math.floor(P.x / SAVE_GAP) + 1) * SAVE_GAP;
   ctx.font = `11px ${FONT}`; ctx.fillStyle = '#7fbfb6';
   const left = segLeft(segOf(P.x)) + mons.filter(m => !m.elite && segOf(m.x) === segOf(P.x)).length;
-  ctx.fillText(zoneAt(P.x) ? '세이브 포인트 안 · 안전함' : `다음 등불까지 ${Math.floor((nextSave - P.x) / 10)} m · 이 구간 남은 몬스터 ${left}`, W / 2, 40);
-  // 강한 몬스터 체력
-  const el = mons.find(m => m.elite);
+  ctx.fillText(boss ? '남문 앞 · 무명귀와 싸우는 중' : zoneAt(P.x) ? '세이브 포인트 안 · 안전함'
+    : !bossDone && P.x > BX0 - 500 ? '남문이 보인다…' : `다음 등불까지 ${Math.floor((nextSave - P.x) / 10)} m · 이 구간 남은 몬스터 ${left}` + (bossDone && P.x > BX1 ? ' · 엔드리스' : ''), W / 2, 40);
+  // 강한 몬스터 체력 (보스는 더 길게, 단계 표시)
+  const el = boss || mons.find(m => m.elite);
   if (el) {
-    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(W / 2 - 162, 52, 324, 16);
-    ctx.fillStyle = '#8a1c32'; ctx.fillRect(W / 2 - 160, 54, 320 * el.hp / el.maxHp, 12);
-    ctx.fillStyle = '#fff'; ctx.font = `bold 11px ${FONT}`; ctx.fillText(MON[el.type].name + (el.ghost ? ' · 귀신' : ''), W / 2, 64);
+    const bw = el === boss ? 420 : 320;
+    ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(W / 2 - bw / 2 - 2, 52, bw + 4, 16);
+    ctx.fillStyle = el === boss ? '#6a1a5a' : '#8a1c32'; ctx.fillRect(W / 2 - bw / 2, 54, bw * Math.max(0, el.hp) / el.maxHp, 12);
+    if (el === boss) { ctx.fillStyle = 'rgba(255,255,255,0.5)'; for (const r of [0.66, 0.33]) ctx.fillRect(W / 2 - bw / 2 + bw * r - 1, 52, 2, 16); }
+    ctx.fillStyle = '#fff'; ctx.font = `bold 11px ${FONT}`;
+    ctx.fillText(el === boss ? `무명귀 · 이름을 먹는 악귀 · ${boss.phase}단계` : MON[el.type].name + (el.ghost ? ' · 귀신' : ''), W / 2, 64);
   }
   // 무기 칸
   W_ORDER.forEach((id, i) => {
@@ -1931,7 +2437,7 @@ function drawCitizen(c) {
   ctx.restore();
 }
 function drawChatBox() {
-  const c = chat.c, line = c.lines[chat.i];
+  const c = chat.c, lines = chatLines(c), line = lines[chat.i];
   const bx = 110, by = 400, bw = W - 220, bh = 110;
   ctx.fillStyle = 'rgba(6,20,22,0.92)'; ctx.fillRect(bx, by, bw, bh);
   ctx.strokeStyle = 'rgba(120,230,215,0.6)'; ctx.lineWidth = 1.5; ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh);
@@ -1944,7 +2450,7 @@ function drawChatBox() {
   rows.push(row);
   rows.forEach((r, i) => ctx.fillText(r, bx + 18, by + 54 + i * 22));
   ctx.textAlign = 'right'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#7fbfb6';
-  ctx.fillText(chat.i < c.lines.length - 1 ? `F 다음 (${chat.i + 1}/${c.lines.length}) · Esc 닫기` : 'F 닫기', bx + bw - 14, by + bh - 12);
+  ctx.fillText(chat.i < lines.length - 1 ? `F 다음 (${chat.i + 1}/${lines.length}) · Esc 닫기` : 'F 닫기', bx + bw - 14, by + bh - 12);
 }
 // --- 2~5줄의 건물과 소품 ---
 function drawJars(x) {
@@ -2080,12 +2586,21 @@ function drawSouthWall() {
   ctx.strokeStyle = '#222a2a'; ctx.lineWidth = 1;
   for (let r = 0; r < 5; r++) for (let k = -1; k < W / 40 + 1; k++) ctx.strokeRect(k * 40 - (acam % 40) + (r % 2) * 20, top + r * 14, 40, 14);
   ctx.fillStyle = '#121b1d'; ctx.fillRect(0, top - 10, W, 12);
-  const gx = AW / 2 - acam;
+  // 5번째 등불까지 왔는데 무명귀를 아직 못 잡았으면, 마을 안에서도 남문이 쾅쾅 흔들린다
+  const knocking = lastSave >= BOSS_SAVE && !bossDone;
+  const gx = AW / 2 - acam + (knocking && gateShake > 0 ? Math.sin(time * 80) * 3 * gateShake : 0);
   if (gx > -120 && gx < W + 120) {
-    ctx.fillStyle = '#5a2620'; ctx.fillRect(gx - 50, b - 96, 100, 96);
-    ctx.fillStyle = '#3a1814'; ctx.fillRect(gx - 1, b - 96, 2, 96);
-    ctx.fillStyle = '#b8a070'; for (let r = 0; r < 4; r++) for (const s of [-1, 1]) for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(gx + s * (12 + k * 13), b - 82 + r * 22, 2, 0, 7); ctx.fill(); }
-    ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(gx - 10, b - 50); ctx.lineTo(gx + 10, b - 50); ctx.stroke();   // 빗장
+    if (bossDone) {
+      // 열린 남문: 문짝이 양쪽으로 열려 있고 그 너머로 저승길 빛이 보인다
+      ctx.fillStyle = '#081416'; ctx.fillRect(gx - 50, b - 96, 100, 96);
+      warmGlow(gx, b - 40, 60, '160,255,235', 0.35);
+      ctx.fillStyle = '#5a2620'; ctx.fillRect(gx - 64, b - 96, 14, 96); ctx.fillRect(gx + 50, b - 96, 14, 96);
+    } else {
+      ctx.fillStyle = '#5a2620'; ctx.fillRect(gx - 50, b - 96, 100, 96);
+      ctx.fillStyle = '#3a1814'; ctx.fillRect(gx - 1, b - 96, 2, 96);
+      ctx.fillStyle = '#b8a070'; for (let r = 0; r < 4; r++) for (const s of [-1, 1]) for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(gx + s * (12 + k * 13), b - 82 + r * 22, 2, 0, 7); ctx.fill(); }
+      ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(gx - 10, b - 50); ctx.lineTo(gx + 10, b - 50); ctx.stroke();   // 빗장
+    }
     giwaRoof(gx, 130, b - 96, 1);
   }
 }
@@ -2110,7 +2625,7 @@ function drawVObj(o) {
   }
   if (o.sign) {
     const sy = { temple: o.b - 150, tavern: o.b - 112, pagoda: o.b - 160, bell: o.b - 140, shrine: o.b - 110, wall: o.b - 112 }[o.k] || o.b - 100;
-    sign(o.k === 'wall' ? AW / 2 - acam : x, sy, o.sign);
+    sign(o.k === 'wall' ? AW / 2 - acam : x, sy, o.k === 'wall' && bossDone ? '남문 · 열림' : o.sign);
   }
 }
 // 줄마다 길가에 선 돌 등불
@@ -2204,7 +2719,7 @@ function drawAfterlife() {
   // 가까이 있는 상대 안내
   if (near) {
     let tx, ty, text, col = '#9ef0e4';
-    if (near === 'portal') { tx = PORTAL.x; ty = PORTAL.y + 26; text = '[F] 이승으로 돌아가기'; col = '#ffcf9a'; }
+    if (near === 'portal') { tx = PORTAL.x; ty = PORTAL.y + 26; text = bossDone ? '[F] 저승길로 (엔드리스)' : '[F] 이승으로 돌아가기'; col = '#ffcf9a'; }
     else if (typeof near === 'string') { const n = NPCS.find(o => o.id === near); tx = n.x; ty = n.y + 26; text = '[F] 말 걸기'; }
     else { tx = near.x; ty = near.y + 24; text = `${near.name} · [F] 말 걸기`; }
     ctx.textAlign = 'center'; ctx.font = `bold 15px ${FONT}`;
@@ -2242,6 +2757,7 @@ function loop(now) {
     if (state === 'play' || state === 'dead') drawHUD();
     if (state === 'title') drawTitle();
     if (state === 'dead') drawDead();
+    if (state === 'ending') drawEnding();
     drawMsgs();
   }
   requestAnimationFrame(loop);

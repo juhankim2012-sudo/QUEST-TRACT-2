@@ -61,7 +61,7 @@ test('1. 게임이 켜지고 시작됨', `
 `);
 
 test('2. 몬스터 공격 동작 (준비 → 공격 → 숨 고르기)', `
-  for (const type of Object.keys(MON)) {
+  for (const type of Object.keys(MON).filter(t => t !== 'boss')) {   // 보스는 12번에서 따로
     reset(); const m = spawnMonster(type, P.x + 40, P.y); m.fade = 1;
     let firstHit = -1;
     for (let i = 0; i < 180; i++) { const hp = P.hp; update(1 / 60); if (P.hp < hp && firstHit < 0) firstHit = i / 60; }
@@ -300,6 +300,93 @@ test('10. 움직임이 끊기지 않고 부드럽게 이어짐', `
   check(maxJump(czv) < 4, '시민이 걷기 시작하고 멈출 때 속도가 서서히 바뀜 (가장 큰 변화 ' + maxJump(czv).toFixed(2) + ')');
   keys.KeyD = true; frame(); const av1 = AP.vx; run(0.5); keys.KeyD = false; frame(); const av2 = AP.vx;
   check(av1 < 60 && av2 > 100, '사후세계에서도 서서히 빨라지고 서서히 멈춤 (' + Math.round(av1) + ', 멈춘 직후 ' + Math.round(av2) + ')');
+`);
+
+test('12. 최종 보스 무명귀', `
+  const toArena = () => {
+    reset(); lastSave = BOSS_SAVE; P.x = BOSS_SAVE * SAVE_GAP + SAVE_W / 2; P.y = 390; cam.x = P.x - W * 0.38;
+    keys.KeyD = true; for (let i = 0; i < 600 && !boss; i++) update(1 / 60); keys.KeyD = false;
+  };
+  toArena();
+  check(!!boss && boss.phase === 1, '5번째 등불 너머 남문 앞에 오면 무명귀와 싸움이 시작됨 (' + Math.floor(BX0 / 10) + 'm)');
+  check(mons.length === 1, '싸우는 곳에는 다른 몬스터가 없음');
+  const hp0 = boss.hp; hurt(boss, 100, 1, 0, 0);
+  check(boss.hp === hp0, '문을 두드리는 등장 장면에서는 안 맞음');
+  run(4);
+  keys.KeyD = true; run(3); keys.KeyD = false;
+  check(P.x <= BX1 - 30 && Math.abs(cam.x - BX0) < 5, '싸우는 동안은 화면 한 칸 안에 갇힘 (남문 너머로 못 감)');
+  // 휘두르기: 준비 동작이 끝나야 맞고, 그 사이 피하면 안 맞음
+  const b = boss;
+  // 공격 하나씩 시험하려고 무대를 비운다 (먼저 불러낸 혼령·날아다니는 글자를 치움)
+  const calm = () => { mons = mons.filter(m => m === b); bshots = []; bhands = []; b.act = null; b.cd = 99; b.vanish = null; b.fade = 1; b.x = (BX0 + BX1) / 2; b.y = 380; P.inv = 0; P.hp = P.maxHp; P.vx = P.vy = 0; P.kx = P.ky = 0; P.slow = 0; };
+  const sweepTest = dodge => {
+    calm(); P.x = b.x - 120; P.y = b.y;
+    bossAct(b, 'sweep'); let hitDuringWind = false, hit = false;
+    for (let i = 0; i < 120 && b.act; i++) {
+      const before = P.hp;
+      if (dodge && b.act.phase === 'wind') keys.KeyA = true;
+      update(1 / 60); keys.KeyA = false;
+      if (P.hp < before) { hit = true; if (b.act && b.act.phase === 'wind') hitDuringWind = true; }
+    }
+    return { hit, hitDuringWind };
+  };
+  const s1 = sweepTest(false), s2 = sweepTest(true);
+  check(s1.hit && !s1.hitDuringWind, '긴 팔 휘두르기: 준비 동작이 끝난 뒤에 맞음');
+  check(!s2.hit, '긴 팔 휘두르기: 준비하는 동안 뒤로 피하면 안 맞음');
+  // 이름 글자: 날아오고, 베면 없어짐
+  calm(); P.x = b.x - 300; bossAct(b, 'names'); for (let i = 0; i < 50; i++) update(1 / 60);
+  const n1 = bshots.length; P.atkCd = 0; weapon = 'dagger';
+  bshots.forEach(s => { s.x = P.x + 40; s.y = P.y - 28; s.vx = s.vy = 0; }); mouse.x = P.x + 40 - cam.x; mouse.y = P.y - 28; attack();
+  update(1 / 60);
+  check(n1 >= 5 && bshots.length === 0, '이름 글자 ' + n1 + '개가 날아오고, 칼로 베면 없어짐');
+  // 단계 넘어가기
+  b.hp = b.maxHp * 0.6; P.hp = P.maxHp; run(0.1);
+  check(b.phase === 2 && bdecoys.length === 8, '체력 66% 아래 → 2단계: 어둠 속에 가짜 눈 8쌍');
+  run(2);
+  // 땅에서 솟는 손: 표시된 자리에서 비키면 안 맞음
+  calm(); P.x = BX0 + 300; P.y = 400;
+  bossAct(b, 'hands'); for (let i = 0; i < 30; i++) update(1 / 60);
+  const hand0 = bhands[0]; bhands = [hand0];   // 내 발밑에 생긴 손 하나만 본다
+  const hold = sec => { for (let i = 0; i < sec * 60; i++) { b.cd = 99; update(1 / 60); } };
+  keys.KeyS = true; keys.KeyD = true; hold(0.5); keys.KeyS = false; keys.KeyD = false; hold(1);
+  check(hand0 && P.hp === P.maxHp, '땅에서 솟는 손: 바닥에 표시가 생겼을 때 비키면 안 맞음');
+  calm(); P.x = BX0 + 300; P.y = 400; bossAct(b, 'hands'); hold(0.6);
+  bhands = [bhands[0]]; const hpStay = P.hp; hold(1.2);
+  check(P.hp < hpStay, '땅에서 솟는 손: 안 비키고 서 있으면 맞음');
+  b.hp = b.maxHp * 0.3; run(0.1);
+  check(b.phase === 3, '체력 33% 아래 → 3단계');
+  run(3);
+  check(bossScene === 'village' && bflee.length > 0, '3단계: 남문을 부수고 마을로 (도망가는 시민들)');
+  // 붙잡기: 이름을 먹는다
+  calm(); const eaten0 = bossEaten; P.x = b.x - 150; P.y = b.y; bossAct(b, 'grab');
+  for (let i = 0; i < 90; i++) { b.act && (b.act.ang = Math.atan2(P.y - 28 - (b.y - 110), P.x - b.x)); update(1 / 60); }
+  check(bossEaten > eaten0 && eatName(0, '체력') === '???', '붙잡히면 이름을 먹힘 → 화면의 「체력」 글자가 ??? 로 바뀜');
+  // 죽으면 그 단계부터 다시
+  P.hp = 0; update(1 / 60); respawn();
+  check(!boss && bossEaten === 0, '죽으면 보스가 사라지고 먹힌 글자도 돌아옴');
+  keys.KeyD = true; for (let i = 0; i < 600 && !boss; i++) update(1 / 60); keys.KeyD = false;
+  check(boss && boss.phase === 3 && Math.abs(boss.hp / boss.maxHp - 0.33) < 0.01, '다시 가면 3단계부터 (체력 33%)');
+  // 잡기 → 엔딩
+  run(1.5); boss.hp = 1; P.atkCd = 0; const bb = boss; P.x = bb.x - 60; P.y = bb.y; mouse.x = bb.x - cam.x; mouse.y = bb.y - 90; P.sp = P.maxSp; attack();
+  check(bossDone && !boss, '무명귀 퇴마!');
+  check(uniques.mask === true, '특이 포인트 「무명귀의 가면」 획득');
+  run(3.5);
+  check(state === 'ending', '잠시 뒤 엔딩 화면');
+  onKey('Digit2'); check(state === 'ending', '엔딩 글이 다 나오기 전에는 고를 수 없음');
+  run(15); onKey('Digit2');
+  check(state === 'afterlife', '[2] 엔드리스 안 하기 → 마을로');
+  check(chatLines(CITIZENS.find(c => c.name === '꼬마 유령'))[0].includes('순이'), '시민들 대사가 바뀜 (꼬마 유령이 이름을 되찾음)');
+  AP.x = PORTAL.x + 40; AP.y = PORTAL.y; onKey('KeyF');
+  check(state === 'play', '마을 문으로 나가면 저승길로');
+  keys.KeyD = true; run(8); keys.KeyD = false;
+  check(P.x > BX1 + 200, '남문 너머로 계속 갈 수 있음 (엔드리스) → ' + Math.floor(P.x / 10) + 'm');
+  // 보스 기술
+  pts.tear = 99; learned.names = true; slots[0] = 'names'; P.sp = P.maxSp; skillCd = {}; const ns = shots.length; castSlot(0);
+  check(shots.length - ns === 7 && shots[shots.length - 1].ch, '보스 기술 「이름 부르기」: 이름 글자 7개 발사');
+  // [1] 엔드리스 계속하기
+  toArena(); boss.intro = 0; boss.hp = 1; bossSaved = 3; P.x = boss.x - 60; P.y = boss.y; P.atkCd = 0; mouse.x = boss.x - cam.x; mouse.y = boss.y - 90; attack();
+  run(3.5); run(15); onKey('Digit1');
+  check(state === 'play' && bossDone, '[1] 엔드리스 계속하기 → 바로 저승길로');
 `);
 
 test('11. 10분 자동 플레이 (오류가 안 나는지)', `
