@@ -427,6 +427,29 @@ test('13. 몬스터 소리 (가짜 스피커로 확인)', `
   AC = null;
 `);
 
+// 제작자 코드는 공개 저장소에 적지 않는다. 시험할 때만 바깥에서 알려 준다:
+//   PowerShell:  $env:DEV_CODE='숫자8자리'; node week-02/tests/test.js
+const DEV_CODE = process.env.DEV_CODE || '';
+if (!DEV_CODE) console.log('\n■ 14. 제작자 코드\n     (DEV_CODE 를 알려 주지 않아서 건너뜀)');
+else test('14. 제작자 코드', `
+  const CODE = ${JSON.stringify(DEV_CODE)};
+  const typeCode = s => { for (const ch of s) onKey('Digit' + ch); };
+  for (const st of ['title', 'play', 'afterlife']) {
+    newGame(); state = st === 'title' ? 'title' : 'play'; if (st === 'afterlife') { P.x = 2400 + 160; enterAfterlife(); }
+    typeCode(CODE);
+    check(state === 'play' && lastSave === BOSS_SAVE && zoneAt(P.x) === BOSS_SAVE, (st === 'title' ? '제목 화면' : st === 'play' ? '게임 중' : '사후세계') + '에서 코드 입력 → 보스 바로 앞 등불로 이동');
+  }
+  check(W_ORDER.every(id => owned[id] && wlv[id] === 5) && pts.soul >= 9999 && pts.tear >= 9999 && pts.grudge >= 9999 && P.maxHp === 200 && P.maxSp === 200, '무기 4개 모두 +5, 포인트 9999, 체력·영력 최대');
+  check(['light', 'barrier', 'scream', 'charge'].every(id => learned[id]), '스킬 4개 모두 배움');
+  keys.KeyD = true; for (let i = 0; i < 600 && !boss; i++) update(1 / 60); keys.KeyD = false;
+  check(!!boss, '앞으로 걸어가면 바로 보스');
+  newGame(); state = 'play'; const x0 = P.x; typeCode(CODE.slice(0, 7) + ((+CODE[7] + 1) % 10));
+  check(P.x === x0 && lastSave === 0, '틀린 숫자는 아무 일도 안 일어남');
+  newGame(); state = 'play'; typeCode('999' + CODE);
+  check(lastSave === BOSS_SAVE, '앞에 다른 숫자를 쳤어도 마지막 8자리가 맞으면 됨');
+  check(!${JSON.stringify(['exorcist.html', 'tests/test.js'].some(f => require('fs').readFileSync(require('path').join(__dirname, '..', f), 'utf8').includes(DEV_CODE)))}, '게임 파일과 시험 파일에 코드 숫자가 그대로 적혀 있지 않음 (공개 저장소)');
+`);
+
 test('11. 10분 자동 플레이 (오류가 안 나는지)', `
   newGame(); state = 'play'; let deaths = 0, afters = 0;
   for (let i = 0; i < 60 * 600; i++) {

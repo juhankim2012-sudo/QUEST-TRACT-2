@@ -155,7 +155,35 @@ cv.addEventListener('mousedown', e => {
 addEventListener('mouseup', e => { if (e.button === 0) mouse.down = false; });
 cv.addEventListener('contextmenu', e => e.preventDefault());
 
+// 제작자 코드: 숫자 8자리를 치면 보스 바로 앞으로 가고 모든 강화가 다 찬다
+// (공개 저장소라서 코드 숫자 대신 숫자로 만든 지문(해시)만 적어 둠)
+const DEV_HASH = 400226464;
+let devKeys = '';
+const fnv = s => { let h = 0x811c9dc5; for (const c of s) { h ^= c.charCodeAt(0); h = Math.imul(h, 0x01000193) >>> 0; } return h; };
+function devWarp() {
+  if (state === 'ending') return;
+  if (state === 'title') newGame();
+  if (state === 'afterlife') { closeTalk(); chat = null; }
+  state = 'play';
+  // 자원과 강화 전부
+  pts.soul = pts.tear = pts.grudge = 9999;
+  for (const id of W_ORDER) { owned[id] = true; wlv[id] = 5; }
+  weapon = 'vajra';
+  uniques.hair = uniques.helm = true;
+  for (const id of ['light', 'barrier', 'scream', 'charge']) learned[id] = true;
+  slots[0] = 'light'; slots[1] = 'scream';
+  up.hp = up.sp = 5; P.maxHp = 200; P.maxSp = 200; P.spRegen = 19; P.hp = P.maxHp; P.sp = P.maxSp;
+  // 5번째 등불 (보스 바로 앞 세이브 포인트)
+  mons = []; shots = []; drops = []; effects = [];
+  boss = null; bshots = []; bhands = []; bdecoys = []; bflee = []; bossEaten = 0;
+  lastSave = BOSS_SAVE; P.x = BOSS_SAVE * SAVE_GAP + SAVE_W / 2; P.y = 390; P.vx = P.vy = P.kx = P.ky = 0; P.inv = 1;
+  cam.x = P.x - W * 0.38;
+  msg('제작자 코드 · 보스 바로 앞 · 모든 강화 완료', 3, '#ffd43b');
+  sfx(880, 0.5, 'sine', 0.1, 1760);
+}
 function onKey(code) {
+  const digit = /^(Digit|Numpad)(\d)$/.exec(code);
+  if (digit) { devKeys = (devKeys + digit[2]).slice(-8); if (devKeys.length === 8 && fnv(devKeys) === DEV_HASH) { devKeys = ''; devWarp(); return; } }
   if (code === 'KeyM') toggleMute();
   if (state === 'ending') {
     if (endingChoicesShown() && (code === 'Digit1' || code === 'Numpad1')) endingChoose(0);
