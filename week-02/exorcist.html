@@ -100,7 +100,8 @@ const segLeft = s => Math.max(0, segQuota(s) - (segSpawned[s] || 0));
 
 function newGame() {
   P = { x: 140, y: 390, hp: 100, maxHp: 100, sp: 100, maxSp: 100, spRegen: 9, speed: 210,
-        inv: 0, slow: 0, shield: 0, dash: null, kx: 0, ky: 0, walk: 0, moving: false };
+        inv: 0, slow: 0, shield: 0, dash: null, kx: 0, ky: 0, walk: 0, moving: false,
+        vx: 0, vy: 0, amp: 0, drawA: 0 };   // vx,vy 지금 속도 · amp 걷는 동작 크기(0~1) · drawA 그림에서 보는 방향(천천히 돌아감)
   pts = { soul: 0, tear: 0, grudge: 0 };
   owned = { dagger: true }; weapon = 'dagger';
   wlv = { dagger: 0, talisman: 0, vajra: 0, bell: 0 };
@@ -112,6 +113,16 @@ function newGame() {
   cam.x = 0;
 }
 newGame();
+
+// ===== 부드러운 움직임 도우미 =====
+const ease = (rate, dt) => 1 - Math.exp(-dt * rate);   // 목표값으로 다가가는 비율 (rate 가 클수록 빠름)
+const lerp = (a, b, t) => a + (b - a) * t;
+// 걷는 동작: 빠르게 걸을수록 발이 크게 움직이고, 멈추면 발이 서서히 제자리로 돌아온다
+function stepWalk(speedRatio, dt) {
+  const r = clamp(speedRatio, 0, 1.2);
+  P.amp += (Math.min(1, r * 1.3) - P.amp) * ease(10, dt);
+  P.walk += dt * (0.35 + 0.65 * Math.min(1, r));
+}
 
 // ===== 입력 =====
 const keys = {};
@@ -434,7 +445,7 @@ function respawn() {
   // 죽으면 마지막 등불부터 앞쪽 구간의 몬스터가 처음부터 다시 나온다
   for (const s in segSpawned) if (+s >= lastSave) delete segSpawned[s];
   P.x = lastSave ? lastSave * SAVE_GAP + SAVE_W / 2 : 140; P.y = 390;
-  P.hp = P.maxHp; P.sp = P.maxSp; P.inv = 1.5; P.slow = 0; P.dash = null; P.kx = P.ky = 0;
+  P.hp = P.maxHp; P.sp = P.maxSp; P.inv = 1.5; P.slow = 0; P.dash = null; P.kx = P.ky = 0; P.vx = P.vy = 0;
   // 못 잡은 강한 몬스터는 다시 나온다
   if (eliteLeft) { eliteIdx--; nextElite = P.x + 900; }
   else nextElite = Math.max(nextElite, P.x + 900);
@@ -598,12 +609,12 @@ const CITIZENS = [
 ];
 CITIZENS.forEach((c, i) => { c.hx = c.x; c.tx = c.x; c.wait = (i % 7) * 0.7; c.f = 1; c.t = Math.random() * 10; });
 const PORTAL = { x: 95, y: 370 };
-const AP = { x: 190, y: 400, f: 1, view: 'side' };   // view: side 옆모습 · back 뒷모습(위로 걸음) · front 앞모습(아래로 걸음)
+const AP = { x: 190, y: 400, f: 1, view: 'side', vx: 0, vy: 0 };   // view: side 옆모습 · back 뒷모습(위로 걸음) · front 앞모습(아래로 걸음)
 let acam = 0, acamY = 0, talking = null, chat = null;   // talking = 상점 NPC 와 대화 중, chat = 시민과 대화 중 { c, i }
 function enterAfterlife() {
   state = 'afterlife'; mouse.down = false;
   P.sp = P.maxSp;   // 체력은 사후세계에서 안 찬다 (세이브 포인트에서 2/3 만)
-  AP.x = 190; AP.y = 400; AP.f = 1; AP.view = 'side'; acam = 0; acamY = 0; talking = null; chat = null; warp = 0;
+  AP.x = 190; AP.y = 400; AP.f = 1; AP.view = 'side'; AP.vx = AP.vy = 0; acam = 0; acamY = 0; talking = null; chat = null; warp = 0;
   after.classList.add('hide');
   msg('사후세계 · 저승 나루터 마을', 2.5, '#9ef0e4');
   sfx(220, 1.2, 'sine', 0.1, 440);
@@ -662,33 +673,42 @@ function updateAfterlife(dt) {
   for (const c of CITIZENS) {
     c.t += dt;
     if (chat && chat.c === c) continue;
-    if (Math.abs(c.tx - c.x) < 2) {
+    // 출발할 땐 천천히 빨라지고, 도착할 땐 천천히 멈춘다
+    const s = c.look === 'child' || c.look === 'cat' ? 45 : 22;
+    const dist = c.tx - c.x;
+    const want = Math.sign(dist) * Math.min(s, Math.abs(dist) * 2.5);
+    c.v = (c.v || 0) + (want - (c.v || 0)) * ease(5, dt);
+    c.x += c.v * dt;
+    if (Math.abs(c.v) > 3) c.f = c.v > 0 ? 1 : -1;
+    c.fs = (c.fs ?? c.f) + (c.f - (c.fs ?? c.f)) * ease(12, dt);   // 돌아설 때 서서히
+    if (Math.abs(dist) < 1.5 && Math.abs(c.v) < 4) {
       c.wait -= dt;
       if (c.wait <= 0) { c.tx = c.hx + (Math.random() * 2 - 1) * c.range; c.wait = 1.5 + Math.random() * 3; }
-    } else {
-      const s = c.look === 'child' || c.look === 'cat' ? 45 : 22;
-      const step = Math.sign(c.tx - c.x) * Math.min(Math.abs(c.tx - c.x), s * dt);
-      c.x += step; c.f = step > 0 ? 1 : -1;
     }
   }
   P.moving = false;
-  if (warp > 0) { updateWarp(dt); return; }
-  if (talking || chat) return;
+  if (warp > 0) { AP.vx = AP.vy = 0; stepWalk(0, dt); updateWarp(dt); return; }
+  if (talking || chat) { AP.vx = AP.vy = 0; stepWalk(0, dt); return; }
   let mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), my = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
   const len = Math.hypot(mx, my);
   if (len) {
     // 보는 모습: 위아래로 걸으면 뒷모습/앞모습, 옆으로 걸으면 옆모습 (가만히 있으면 마지막 모습)
     if (my && Math.abs(my) >= Math.abs(mx)) AP.view = my < 0 ? 'back' : 'front';
     else { AP.view = 'side'; AP.f = mx > 0 ? 1 : -1; }
-    mx /= len; my /= len; P.moving = true; P.walk += dt;
+    mx /= len; my /= len; P.moving = true;
   }
+  // 서서히 빨라지고 서서히 멈춘다
+  const acc = ease(12, dt);
+  AP.vx += (mx * 200 - AP.vx) * acc; AP.vy += (my * 190 - AP.vy) * acc;
   // 건물에 막히면 그 방향으로는 못 간다 (옆으로는 미끄러지듯 지나감)
-  const nx = clamp(AP.x + mx * 200 * dt, 40, AW - 40);
-  if (!blockedAt(nx, AP.y)) AP.x = nx;
-  const ny = clamp(AP.y + my * 190 * dt, 280, AH - 20);
-  if (!blockedAt(AP.x, ny)) AP.y = ny;
-  acam = clamp(AP.x - W / 2, 0, AW - W);
-  acamY = clamp(AP.y - 380, 0, AH - H);
+  const nx = clamp(AP.x + AP.vx * dt, 40, AW - 40);
+  if (!blockedAt(nx, AP.y)) AP.x = nx; else AP.vx = 0;
+  const ny = clamp(AP.y + AP.vy * dt, 280, AH - 20);
+  if (!blockedAt(AP.x, ny)) AP.y = ny; else AP.vy = 0;
+  stepWalk(Math.hypot(AP.vx, AP.vy) / 200, dt);
+  // 카메라도 부드럽게 따라온다
+  acam += (clamp(AP.x - W / 2, 0, AW - W) - acam) * ease(8, dt);
+  acamY += (clamp(AP.y - 380, 0, AH - H) - acamY) * ease(8, dt);
 }
 const priceStr = p => Object.entries(p).map(([k, v]) => `<span class="c-${k}">${PT_NAMES[k]} ${v}</span>`).join(' · ');
 const canPay = p => Object.entries(p).every(([k, v]) => pts[k] >= v);
@@ -738,7 +758,7 @@ function update(dt) {
   time += dt;
   msgs.forEach(m => m.t -= dt); msgs = msgs.filter(m => m.t > 0);
   if (state === 'title') {
-    P.x += 70 * dt; P.moving = true; P.walk += dt; cam.x = P.x - W * 0.38;
+    P.x += 70 * dt; P.moving = true; stepWalk(70 / P.speed, dt); cam.x = P.x - W * 0.38;
     return;
   }
   if (state !== 'play') return;
@@ -758,10 +778,14 @@ function update(dt) {
     let mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), my = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
     const len = Math.hypot(mx, my);
     P.moving = len > 0;
-    if (len) { mx /= len; my /= len; P.walk += dt; }
+    if (len) { mx /= len; my /= len; }
     const sp = P.speed * (P.slow > 0 ? 0.55 : 1);
-    P.x += mx * sp * dt + P.kx * dt; P.y += my * sp * 0.8 * dt + P.ky * dt;
+    // 바로 최고 속도가 되지 않고 서서히 빨라지고, 서서히 멈춘다
+    const acc = 1 - Math.exp(-dt * 12);
+    P.vx += (mx * sp - P.vx) * acc; P.vy += (my * sp * 0.8 - P.vy) * acc;
+    P.x += P.vx * dt + P.kx * dt; P.y += P.vy * dt + P.ky * dt;
   }
+  stepWalk(Math.hypot(P.vx, P.vy) / P.speed, dt);
   const fr = Math.pow(0.002, dt); P.kx *= fr; P.ky *= fr;
   P.y = clamp(P.y, ROAD_TOP + 12, ROAD_BOT);
   // 뒤쪽에 몬스터가 남아 있으면 뒤로 돌아갈 수 있고 카메라도 따라온다
@@ -895,11 +919,19 @@ function update(dt) {
         if (k.t <= 0) { k.phase = 'rec'; k.t = A.rec; }
       } else if (k.t <= 0) { m.atk = null; m.acd = A.cd; }
     }
-    // 보는 방향: 공격 중에는 공격하는 쪽, 아니면 움직이는 쪽
+    // 속도가 순간적으로 바뀌지 않고 서서히 바뀐다 (공격으로 몸을 날릴 때와 돌진할 때는 빠르게)
+    const rate = m.atk && m.atk.phase === 'hit' ? 40 : m.type === 'knight' && m.cs === 'charge' ? 20 : 7;
+    m.svx = (m.svx ?? vx) + (vx - (m.svx ?? vx)) * ease(rate, dt);
+    m.svy = (m.svy ?? vy) + (vy - (m.svy ?? vy)) * ease(rate, dt);
+    // 보는 방향: 공격 중에는 공격하는 쪽, 아니면 움직이는 쪽. 돌아설 때는 서서히 몸을 돌린다
     if (m.atk) m.face = Math.cos(m.atk.ang) >= 0 ? 1 : -1;
-    else if (Math.abs(vx) > 3) m.face = vx > 0 ? 1 : -1;
+    else if (Math.abs(m.svx) > 3) m.face = m.svx > 0 ? 1 : -1;
+    m.fs = (m.fs ?? m.face ?? 1) + ((m.face ?? 1) - (m.fs ?? m.face ?? 1)) * ease(14, dt);
+    // 다리 움직임 크기: 빨리 걸을수록 크게, 멈추면 서서히 제자리로
+    const goAmp = m.atk ? 0 : clamp(Math.hypot(m.svx, m.svy) / (m.speed * 0.6), 0, 1);
+    m.amp = (m.amp ?? 0) + (goAmp - (m.amp ?? 0)) * ease(8, dt);
     const kf = Math.pow(0.01, dt);
-    m.x += (vx + m.vx) * dt; m.y += (vy + m.vy) * dt; m.vx *= kf; m.vy *= kf;
+    m.x += (m.svx + m.vx) * dt; m.y += (m.svy + m.vy) * dt; m.vx *= kf; m.vy *= kf;
     m.y = clamp(m.y, ROAD_TOP + 14, ROAD_BOT);
     // 세이브 포인트 안으로는 못 들어옴
     const zi = inZoneWide(m.x, m.r);
@@ -1121,8 +1153,13 @@ function drawPlayer(x, y, view = 'side') {
     else if (mx) P.lookA = mx > 0 ? 0 : Math.PI;
     a = P.lookA ?? 0;
   } else a = state === 'afterlife' && AP.f < 0 ? Math.PI : 0;
+  // 몸을 돌릴 때 순간적으로 뒤집히지 않고 빠르게 돌아간다 (공격할 때는 마우스 쪽을 바로 봄)
+  const dtD = Math.min(0.05, Math.max(0, time - (P.drawT ?? time))); P.drawT = time;
+  if (state === 'play' && (mouse.down || P.atkCd > 0)) P.drawA = a;
+  else { let d = a - P.drawA; d = Math.atan2(Math.sin(d), Math.cos(d)); P.drawA += d * ease(18, dtD); }
+  a = P.drawA;
   const f = Math.cos(a) >= 0 ? 1 : -1;
-  const step = P.moving ? Math.sin(P.walk * 11) : 0;
+  const step = Math.sin(P.walk * 11) * P.amp;
   shadow(x, y, 16);
   ctx.save();
   if (P.inv > 0 && Math.floor(P.inv * 20) % 2) ctx.globalAlpha = 0.45;
@@ -1163,13 +1200,18 @@ function drawWeaponInHand(hx, hy, a) {
   ctx.restore();
 }
 function drawMonster(m) {
-  const x = m.x - cam.x, y = m.y, f = m.face || 1;
+  const x = m.x - cam.x, y = m.y, f = m.fs ?? m.face ?? 1;
   const shake = m.flash > 0 ? (Math.random() - 0.5) * 4 : 0;
-  // 공격 자세: w = 준비 정도(0~1), hit = 휘두르는 중이거나 막 휘두른 뒤
+  // 공격 자세는 끊기지 않고 이어진다:
+  //   w  = 준비 자세 정도 (준비하는 동안 0→1, 휘두르기 시작하면 1→0)
+  //   hk = 공격 자세 정도 (휘두르기 시작하면 0→1, 숨 고르는 동안 1→0 으로 평소 자세로 돌아옴)
   const A = MON[m.type].atk, k = m.atk;
-  const w = k && k.phase === 'wind' ? clamp(1 - k.t / A.wind, 0, 1) : 0;
-  const hit = !!k && k.phase !== 'wind';
-  const still = !!k || (m.type === 'knight' && m.cs === 'aim');
+  let w = 0, hk = 0;
+  if (k && k.phase === 'wind') w = clamp(1 - k.t / A.wind, 0, 1);
+  else if (k && k.phase === 'hit') { hk = clamp((A.hit - k.t) / Math.min(0.11, A.hit * 0.85), 0, 1); w = 1 - hk; }
+  else if (k && k.phase === 'rec') hk = clamp(k.t / A.rec, 0, 1);
+  const L = lerp;
+  const hit = hk > 0.01;
   const tremble = w > 0 ? Math.sin(time * 60) * w * 1.5 : 0;
   ctx.save();
   ctx.globalAlpha = m.fade;
@@ -1177,28 +1219,28 @@ function drawMonster(m) {
   ctx.translate(shake + tremble, 0);
   const t = m.t;
   if (m.type === 'zombie') {
-    const s = still ? 0 : Math.sin(t * 5 + m.seed * 9);
-    const lean = hit ? 0.7 : 0.3 - w * 0.6, bx = x + f * (hit ? 7 : 3 - w * 3);
+    const s = Math.sin(t * 5 + m.seed * 9) * (m.amp ?? 0);
+    const lean = L(0.3 - w * 0.6, 0.7, hk), bx = x + f * L(3 - w * 3, 7, hk);
     ctx.strokeStyle = '#2d3324'; ctx.lineWidth = 5;
     ctx.beginPath(); ctx.moveTo(x - 4, y - 18); ctx.lineTo(x - 5 + s * 4, y); ctx.moveTo(x + 4, y - 18); ctx.lineTo(x + 5 - s * 4, y); ctx.stroke();
     ctx.fillStyle = '#46553a'; ctx.beginPath(); ctx.ellipse(bx, y - 28, 11, 14, f * lean, 0, 7); ctx.fill();
     // 팔: 평소엔 앞으로, 준비할 땐 머리 위로, 공격할 땐 앞쪽 아래로 내리침
-    const ax = hit ? 34 : 24 - w * 18, ay = hit ? -16 : -32 - w * 30;
+    const ax = L(24 - w * 18, 34, hk), ay = L(-32 - w * 30, -16, hk);
     ctx.strokeStyle = '#5f704d'; ctx.lineWidth = 4;
     ctx.beginPath(); ctx.moveTo(bx + f * 3, y - 34); ctx.lineTo(x + f * ax, y + ay + s * 2); ctx.moveTo(bx + f * 1, y - 30); ctx.lineTo(x + f * (ax - 2), y + ay + 6 - s * 2); ctx.stroke();
-    const hx = bx + f * (6 + (hit ? 4 : -w * 2));
+    const hx = bx + f * (6 + L(-w * 2, 4, hk));
     ctx.fillStyle = '#6d7d5b'; ctx.beginPath(); ctx.arc(hx, y - 44, 9, 0, 7); ctx.fill();
     ctx.fillStyle = '#2a2420'; ctx.fillRect(hx - 3, y - 39, 6, 2 + (w > 0 || hit ? 3 : 0));
     eyes(m, [[hx + f * 2, y - 46], [hx - f * 3, y - 46]], '230,230,150', 1.8);
   } else if (m.type === 'skeleton') {
-    const s = still ? 0 : Math.sin(t * 9 + m.seed * 9);
+    const s = Math.sin(t * 9 + m.seed * 9) * (m.amp ?? 0);
     ctx.strokeStyle = '#d6d0c0'; ctx.lineWidth = 2.5;
     ctx.beginPath(); ctx.moveTo(x, y - 20); ctx.lineTo(x - 4 + s * 5, y); ctx.moveTo(x, y - 20); ctx.lineTo(x + 4 - s * 5, y);
     ctx.moveTo(x, y - 20); ctx.lineTo(x, y - 38); ctx.stroke();
     for (let i = 0; i < 3; i++) { ctx.beginPath(); ctx.moveTo(x - 7, y - 24 - i * 5); ctx.lineTo(x + 7, y - 24 - i * 5); ctx.stroke(); }
     // 녹슨 칼: 준비할 땐 뒤로 당기고, 공격할 땐 앞으로 찌름
-    const hx = x + f * (hit ? 22 : 14 - w * 26), hy = y - (hit ? 32 : 28 + w * 12 + s * 3);
-    const sa = hit ? 0 : -0.4 - w * 1.2;
+    const hx = x + f * L(14 - w * 26, 22, hk), hy = y - L(28 + w * 12 + s * 3, 32, hk);
+    const sa = L(-0.4 - w * 1.2, 0, hk);
     ctx.beginPath(); ctx.moveTo(x, y - 35); ctx.lineTo(hx, hy); ctx.stroke();
     ctx.strokeStyle = '#8a8478'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx + f * Math.cos(sa) * 22, hy + Math.sin(sa) * 22); ctx.stroke();
@@ -1209,8 +1251,7 @@ function drawMonster(m) {
   } else if (m.type === 'wisp') {
     const hy = y - 20 - m.hover;
     // 준비할 땐 움츠러들고, 날아들 땐 앞으로 길게 늘어남
-    const flying = hit && k.phase === 'hit';
-    const sx = flying ? 1.35 : 1 - w * 0.2, sy = flying ? 0.8 : 1 - w * 0.15;
+    const sx = L(1 - w * 0.2, 1.35, hk), sy = L(1 - w * 0.15, 0.8, hk);
     const angry = w > 0 || hit;
     ctx.save(); ctx.translate(x, hy); ctx.scale(sx * f, sy);
     const g = ctx.createRadialGradient(0, 0, 2, 0, 0, 24);
@@ -1229,7 +1270,7 @@ function drawMonster(m) {
     ctx.fillStyle = 'rgba(5,3,10,0.92)';
     for (let i = 0; i < 7; i++) { ctx.beginPath(); ctx.arc(x + Math.sin(t * 4 + i * 2) * 4 - f * w * 4, hy - i * 6, 13 - i * 0.6 + Math.sin(t * 6 + i) * 2 + w * 2, 0, 7); ctx.fill(); }
     // 긴 팔: 준비할 땐 뒤로 높이, 공격할 땐 앞으로 쭉 뻗어 할퀴기
-    const reach = hit ? 82 : 30 - w * 48, lift = hit ? 4 : -4 - w * 30;
+    const reach = L(30 - w * 48, 82, hk), lift = L(-4 - w * 30, 4, hk);
     ctx.strokeStyle = 'rgba(5,3,10,0.9)'; ctx.lineWidth = 3;
     for (const s of [-1, 1]) {
       const ex = x + f * reach + Math.sin(t * 5 + s) * 4, ey = hy + lift + s * 5;
@@ -1246,19 +1287,19 @@ function drawMonster(m) {
     ctx.beginPath(); ctx.moveTo(x - 10, hy - 58); ctx.lineTo(x + 10, hy - 58);
     ctx.lineTo(x + 22 + Math.sin(t * 2) * 3, hy + 4); ctx.lineTo(x - 22 + Math.sin(t * 2 + 1) * 3, hy + 4); ctx.fill();
     // 팔: 준비할 땐 천천히 앞으로 들어 올리고, 공격할 땐 길게 뻗어 움켜쥠
-    const reaching = w > 0 || hit;
-    const ax = hit ? 66 : 4 + w * 30, ay = hit ? -46 : -22 - w * 20;
+    const rr = Math.max(w, hk);   // 팔을 뻗은 정도
+    const ax = L(13 + w * 21, 66, hk), ay = L(-22 - w * 20, -46, hk);
     ctx.strokeStyle = 'rgba(225,220,215,0.9)'; ctx.lineWidth = 4;
     ctx.beginPath();
-    ctx.moveTo(x - f * 9, hy - 54); ctx.lineTo(reaching ? x + f * (ax - 6) : x - f * 13, hy + (reaching ? ay + 5 : -22));
-    ctx.moveTo(x + f * 9, hy - 54); ctx.lineTo(x + f * (reaching ? ax : 13), hy + (reaching ? ay : -22));
+    ctx.moveTo(x - f * 9, hy - 54); ctx.lineTo(x + f * L(-13, ax - 6, rr), hy + L(-22, ay + 5, rr));
+    ctx.moveTo(x + f * 9, hy - 54); ctx.lineTo(x + f * ax, hy + ay);
     ctx.stroke();
-    if (reaching) {
+    if (rr > 0.15) {
       ctx.lineWidth = 1.5;
       for (const c of [-2, -1, 0, 1, 2]) { ctx.beginPath(); ctx.moveTo(x + f * ax, hy + ay); ctx.lineTo(x + f * (ax + 8), hy + ay + c * 3); ctx.stroke(); }
     }
     // 얼굴을 덮은 긴 머리 (준비할 때 고개를 꺾음)
-    const tilt = f * (w * 0.5 + (hit ? 0.3 : 0));
+    const tilt = f * (w * 0.5 + hk * 0.3);
     ctx.save(); ctx.translate(x, hy - 60); ctx.rotate(tilt);
     ctx.fillStyle = '#060507';
     ctx.beginPath(); ctx.arc(0, -8, 11, Math.PI, 0); ctx.lineTo(13, 30 + Math.sin(t * 1.5) * 3); ctx.lineTo(-13, 32 + Math.sin(t * 1.5 + 1) * 3); ctx.fill();
@@ -1269,7 +1310,7 @@ function drawMonster(m) {
     const ex0 = f * 3, ey0 = -6;
     eyes(m, [[x + ex0 * Math.cos(tilt) - ey0 * Math.sin(tilt), hy - 60 + ex0 * Math.sin(tilt) + ey0 * Math.cos(tilt)]], '255,40,60', 1.8);
   } else if (m.type === 'knight') {
-    const s = m.cs === 'charge' ? Math.sin(t * 18) : still ? 0 : Math.sin(t * 5);
+    const s = m.cs === 'charge' ? Math.sin(t * 18) : Math.sin(t * 5) * (m.amp ?? 0);
     ctx.strokeStyle = '#cfc8b6'; ctx.lineWidth = 4;
     ctx.beginPath(); ctx.moveTo(x, y - 28); ctx.lineTo(x - 6 + s * 6, y); ctx.moveTo(x, y - 28); ctx.lineTo(x + 6 - s * 6, y); ctx.stroke();
     ctx.fillStyle = '#2c2f38'; ctx.beginPath(); ctx.moveTo(x - 16, y - 62); ctx.lineTo(x + 16, y - 62); ctx.lineTo(x + 12, y - 26); ctx.lineTo(x - 12, y - 26); ctx.fill();
@@ -1278,7 +1319,9 @@ function drawMonster(m) {
     ctx.fillStyle = '#5a1b25'; ctx.beginPath(); ctx.moveTo(x - 2, y - 86); ctx.quadraticCurveTo(x - f * 20, y - 96, x - f * 26, y - 78); ctx.lineTo(x - 2, y - 82); ctx.fill();
     ctx.fillStyle = '#111'; ctx.fillRect(x - 9, y - 76, 18, 4);
     // 큰 칼: 준비할 땐 머리 뒤로 높이 들고, 공격할 땐 앞으로 내리침
-    const rot = m.cs === 'aim' ? -f * 1.2 : hit ? f * 1.9 : w > 0 ? -f * (0.5 + w * 1.9) : f * 0.5;
+    // 돌진 준비(aim) 때 칼을 들어 올리고, 돌진하는 동안 천천히 내린다
+    const aimK = m.cs === 'aim' ? clamp((0.9 - m.ct) / 0.25, 0, 1) : m.cs === 'charge' ? clamp(m.ct / 0.7, 0, 1) : 0;
+    const rot = L(L(L(f * 0.5, -f * 1.2, aimK), -f * 2.4, w), f * 1.9, hk);
     ctx.save(); ctx.translate(x + f * 16, y - 46); ctx.rotate(rot);
     ctx.fillStyle = '#9aa1ad'; ctx.fillRect(-2, -42, 5, 44); ctx.fillStyle = '#4a3a2a'; ctx.fillRect(-7, 0, 15, 4); ctx.restore();
     eyes(m, [[x - 4, y - 74], [x + 4, y - 74]], '90,255,200', 2);
@@ -1785,7 +1828,7 @@ function drawVillageBack() {
 
 // --- 사후세계 시민 ---
 function drawCitizen(c) {
-  const x = c.x - acam, y = c.y, f = c.f, t = c.t;
+  const x = c.x - acam, y = c.y, f = c.fs ?? c.f, t = c.t;
   if (x < -60 || x > W + 60 || y < acamY - 20 || y - 110 > acamY + H) return;
   const bob = Math.sin(t * 2 + c.hx) * 2;
   shadow(x, y, c.look === 'cat' ? 10 : c.look === 'child' ? 11 : 15);
@@ -2082,7 +2125,7 @@ function drawRowLamp(l) {
 
 // --- 사후세계에서 위아래로 걸을 때의 앞모습 · 뒷모습 ---
 function drawPlayerFB(x, y, view) {
-  const step = P.moving ? Math.sin(P.walk * 11) : 0;
+  const step = Math.sin(P.walk * 11) * P.amp;
   shadow(x, y, 15);
   const by = y - Math.abs(step) * 2;
   // 발 (번갈아 앞뒤로)

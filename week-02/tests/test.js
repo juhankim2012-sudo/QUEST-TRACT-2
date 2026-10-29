@@ -201,7 +201,7 @@ test('6. 떨어진 포인트를 직접 주워야 함', `
   check(drops.every(d => Math.abs(d.x - d.hx) <= 13), '움직여도 제자리에서 멀리 안 감 (13px 이내)');
   for (const d of [...drops]) { P.x = d.x; P.y = d.y; run(0.05); }
   check(drops.length === 0 && pts.soul > 0, '걸어가서 다 주움 → ' + JSON.stringify(pts));
-  reset(); natT = 0.1; let nat = 0;
+  reset(); P.x = 3000; cam.x = P.x - W * 0.38; natT = 0.1; let nat = 0;   // 근처에 세이브 지역이 없는 곳
   for (let i = 0; i < 60 * 60; i++) { const n = drops.length; update(1 / 60); if (drops.length > n) nat++; }
   check(nat >= 5, '60초 동안 길에 저절로 생긴 포인트: ' + nat + '개');
 `);
@@ -260,7 +260,49 @@ test('9. 몬스터는 구간마다 정해진 수만큼만 나옴', `
   check(segLeft(1) === segQuota(1), '죽고 다시 시작하면 그 구간 몬스터가 다시 나옴');
 `);
 
-test('10. 10분 자동 플레이 (오류가 안 나는지)', `
+test('10. 움직임이 끊기지 않고 부드럽게 이어짐', `
+  const maxJump = arr => arr.slice(1).reduce((m, v, i) => Math.max(m, Math.abs(v - arr[i])), 0);
+  // 플레이어: 서서히 빨라지고 서서히 멈춤
+  reset(); keys.KeyD = true; update(1 / 60); const v1 = P.vx;
+  for (let i = 0; i < 30; i++) update(1 / 60); const vFull = P.vx;
+  keys.KeyD = false; update(1 / 60); const vAfter = P.vx;
+  for (let i = 0; i < 40; i++) update(1 / 60); const vStop = P.vx;
+  check(v1 < P.speed * 0.3, '출발한 첫 순간에는 아직 느림 (' + Math.round(v1) + ' / ' + P.speed + ')');
+  check(vFull > P.speed * 0.95, '0.5초 뒤에는 최고 속도 (' + Math.round(vFull) + ')');
+  check(vAfter > vFull * 0.7 && Math.abs(vStop) < 5, '손을 떼면 바로 서지 않고 서서히 멈춤 (' + Math.round(vAfter) + ' → ' + Math.round(vStop) + ')');
+  // 플레이어 다리: 멈춰도 다리가 한 번에 제자리로 가지 않음
+  reset(); keys.KeyD = true; run(0.5); const a0 = P.amp; keys.KeyD = false; run(1 / 60); const a1 = P.amp; run(0.6);
+  check(a0 > 0.9 && a1 > 0.75 && P.amp < 0.05, '멈추면 걷는 동작이 서서히 줄어듦 (' + a0.toFixed(2) + ' → ' + a1.toFixed(2) + ' → ' + P.amp.toFixed(2) + ')');
+  // 플레이어 돌아서기: 오른쪽 → 왼쪽으로 바꿀 때 한 번에 뒤집히지 않음
+  reset(); mouse.down = false; P.atkCd = 0; keys.KeyD = true; run(0.3); keys.KeyD = false; keys.KeyA = true;
+  run(1 / 60); const turn1 = Math.abs(P.drawA); run(0.3); const turn2 = Math.abs(P.drawA); keys.KeyA = false;
+  check(turn1 > 0.1 && turn1 < 2.5 && turn2 > 3.0, '돌아설 때 몸이 빠르게 돌아감 (각도 0 → ' + turn1.toFixed(2) + ' → ' + turn2.toFixed(2) + ', 반대쪽은 3.14)');
+  // 몬스터: 그림자 귀신이 느렸다 빨랐다 할 때 속도가 뚝 바뀌지 않음
+  reset(); const sh = spawnMonster('shade', P.x + 700, P.y); sh.fade = 1; sh.acd = 99;
+  const sv = []; for (let i = 0; i < 180; i++) { update(1 / 60); sv.push(sh.svx); }
+  check(maxJump(sv) < sh.speed * 2.6 * 0.15, '그림자 귀신 속도 변화가 한 순간에 크지 않음 (가장 큰 변화 ' + maxJump(sv).toFixed(1) + ')');
+  // 몬스터 돌아서기
+  reset(); const z = spawnMonster('zombie', P.x + 100, P.y); z.fade = 1; z.acd = 99;
+  const fs = []; for (let i = 0; i < 60; i++) { update(1 / 60); fs.push(z.fs); } P.x += 400;
+  for (let i = 0; i < 90; i++) { update(1 / 60); fs.push(z.fs); }
+  check(maxJump(fs) < 0.5 && fs[fs.length - 1] > 0.9, '좀비가 돌아설 때 서서히 몸을 돌림 (한 순간 가장 큰 변화 ' + maxJump(fs).toFixed(2) + ')');
+  // 공격 자세: 좀비 팔 끝이 한 순간에 크게 튀지 않음 (준비 → 내리침 → 숨 고르기 → 평소)
+  reset(); const zz = spawnMonster('zombie', P.x + 40, P.y); zz.fade = 1; zz.acd = 0; zz.seed = 0.3;
+  const realLine = ctx.lineTo; let calls = []; ctx.lineTo = (x, y) => calls.push([x, y]);
+  const arm = [];
+  for (let i = 0; i < 150; i++) { update(1 / 60); P.hp = P.maxHp; P.inv = 1; calls = []; drawMonster(zz); if (calls[2]) arm.push(calls[2]); }
+  ctx.lineTo = realLine;
+  let armJump = 0; for (let i = 1; i < arm.length; i++) armJump = Math.max(armJump, Math.hypot(arm[i][0] - arm[i - 1][0], arm[i][1] - arm[i - 1][1]));
+  check(armJump < 14, '좀비가 공격할 때 팔이 끊기지 않고 움직임 (한 순간 가장 크게 움직인 거리 ' + armJump.toFixed(1) + 'px)');
+  // 사후세계: 시민과 나도 서서히 출발하고 멈춤
+  reset(); enterAfterlife(); const cz = CITIZENS[1]; const czv = [];
+  for (let i = 0; i < 600; i++) { frame(); czv.push(cz.v || 0); }
+  check(maxJump(czv) < 4, '시민이 걷기 시작하고 멈출 때 속도가 서서히 바뀜 (가장 큰 변화 ' + maxJump(czv).toFixed(2) + ')');
+  keys.KeyD = true; frame(); const av1 = AP.vx; run(0.5); keys.KeyD = false; frame(); const av2 = AP.vx;
+  check(av1 < 60 && av2 > 100, '사후세계에서도 서서히 빨라지고 서서히 멈춤 (' + Math.round(av1) + ', 멈춘 직후 ' + Math.round(av2) + ')');
+`);
+
+test('11. 10분 자동 플레이 (오류가 안 나는지)', `
   newGame(); state = 'play'; let deaths = 0, afters = 0;
   for (let i = 0; i < 60 * 600; i++) {
     keys.KeyD = (i % 400) < 330; keys.KeyW = (i % 120) < 30; keys.KeyS = (i % 120) > 90;
