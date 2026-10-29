@@ -457,15 +457,72 @@ const LINES = {
            '내 망치는 산 사람 물건도, 죽은 사람 물건도 가리지 않아.'],
 };
 // 사후세계는 걸어 다니는 마을: 상점 NPC 와 평범한 시민들에게 다가가서 F 로 말을 건다
-// 마을 배치 (왼쪽 → 오른쪽): 이승으로 가는 문 · 장승 · 저승 무기점 · 장터 · 망자 도서관 · 우물과 신목 · 영혼 대장간 · 나루터
-const AW = 2800;                                   // 사후세계 너비
+// 마을은 위아래로도 넓은 큰 네모. 맨 위 줄(강가)은 예전 그대로, 그 아래로 동네가 네 줄 더 있다.
+//   1줄 강가 (y 262)   : 이승으로 가는 문 · 장승 · 저승 무기점 · 장터 · 망자 도서관 · 우물과 신목 · 영혼 대장간 · 나루터
+//   2줄 윗동네 (y 700) : 집들 · 장독대 · 빨래터
+//   3줄 탑 광장 (y 1150): 집들 · 연꽃 연못 · 석탑 · 연등 줄
+//   4줄 저승사 (y 1600) : 대나무 숲 · 절 · 종각
+//   5줄 아랫동네 (y 2050): 집들 · 서낭당 · 저승 주막
+//   맨 아래 (y 2500)    : 닫힌 남문과 돌담
+const AW = 2800, AH = 2560;                          // 사후세계 너비와 높이
+const ROWS = [262, 700, 1150, 1600, 2050];           // 줄마다 건물이 서 있는 선 (y)
 const NPCS = [
   { id: 'reaper', x: 600,  y: 330, name: '저승사자', job: '무기' },
   { id: 'lib',    x: 1250, y: 320, name: '망자 도서관 사서', job: '스킬' },
   { id: 'smith',  x: 2000, y: 340, name: '영혼 대장장이', job: '강화' },
 ];
+// 2~5줄 건물과 소품 (k: 종류, x: 가운데, b: 서 있는 선, w: 폭). block 이 있으면 지나갈 수 없다
+const VOBJ = [
+  // 2줄 윗동네
+  { k: 'house', x: 300,  b: 700, w: 160, h: 64, seed: 21, block: 1 },
+  { k: 'house', x: 520,  b: 700, w: 140, h: 58, seed: 22, block: 1 },
+  { k: 'house', x: 790,  b: 700, w: 180, h: 80, seed: 23, tiers: 2, block: 1 },
+  { k: 'house', x: 1010, b: 700, w: 140, h: 60, seed: 24, block: 1 },
+  { k: 'jars',  x: 1190, b: 700, w: 110, block: 1 },
+  { k: 'house', x: 1420, b: 700, w: 160, h: 66, seed: 25, block: 1 },
+  { k: 'house', x: 1640, b: 700, w: 150, h: 60, seed: 26, block: 1 },
+  { k: 'laundry', x: 1890, b: 700, w: 150 },
+  { k: 'house', x: 2150, b: 700, w: 170, h: 66, seed: 27, block: 1 },
+  { k: 'house', x: 2400, b: 700, w: 150, h: 60, seed: 28, block: 1 },
+  { k: 'house', x: 2620, b: 700, w: 140, h: 58, seed: 29, block: 1 },
+  // 3줄 탑 광장
+  { k: 'house', x: 330,  b: 1150, w: 160, h: 62, seed: 31, block: 1 },
+  { k: 'house', x: 580,  b: 1150, w: 150, h: 70, seed: 32, block: 1 },
+  { k: 'house', x: 830,  b: 1150, w: 150, h: 60, seed: 33, block: 1 },
+  { k: 'pond',  x: 1100, b: 1150, w: 190, block: 1 },
+  { k: 'lanterns', x: 1400, b: 1150, w: 520 },
+  { k: 'pagoda', x: 1400, b: 1150, w: 70, block: 1, sign: '탑 광장' },
+  { k: 'house', x: 1980, b: 1150, w: 160, h: 64, seed: 34, block: 1 },
+  { k: 'house', x: 2230, b: 1150, w: 150, h: 60, seed: 35, block: 1 },
+  { k: 'house', x: 2480, b: 1150, w: 170, h: 72, seed: 36, tiers: 2, block: 1 },
+  // 4줄 저승사
+  { k: 'house', x: 380,  b: 1600, w: 160, h: 62, seed: 41, block: 1 },
+  { k: 'house', x: 630,  b: 1600, w: 150, h: 60, seed: 42, block: 1 },
+  { k: 'bamboo', x: 930, b: 1600, w: 170, block: 1 },
+  { k: 'temple', x: 1400, b: 1600, w: 300, h: 100, seed: 43, block: 1, sign: '저승사' },
+  { k: 'bell',  x: 1760, b: 1600, w: 110, block: 1, sign: '종각' },
+  { k: 'house', x: 2180, b: 1600, w: 160, h: 64, seed: 44, block: 1 },
+  { k: 'house', x: 2440, b: 1600, w: 150, h: 60, seed: 45, block: 1 },
+  // 5줄 아랫동네
+  { k: 'house', x: 300,  b: 2050, w: 150, h: 60, seed: 51, block: 1 },
+  { k: 'house', x: 560,  b: 2050, w: 160, h: 66, seed: 52, block: 1 },
+  { k: 'house', x: 820,  b: 2050, w: 150, h: 58, seed: 53, block: 1 },
+  { k: 'shrine', x: 1080, b: 2050, w: 120, block: 1, sign: '서낭당' },
+  { k: 'tavern', x: 1450, b: 2050, w: 230, h: 76, seed: 54, block: 1, sign: '저승 주막' },
+  { k: 'house', x: 1760, b: 2050, w: 150, h: 62, seed: 55, block: 1 },
+  { k: 'house', x: 2010, b: 2050, w: 160, h: 66, seed: 56, block: 1 },
+  { k: 'house', x: 2280, b: 2050, w: 150, h: 60, seed: 57, block: 1 },
+  { k: 'house', x: 2530, b: 2050, w: 160, h: 64, seed: 58, block: 1 },
+  // 맨 아래 남문과 돌담 (끝까지 막혀 있음)
+  { k: 'wall',  x: AW / 2, b: 2500, w: AW, block: 1, sign: '남문 · 닫힘' },
+];
+// 지나갈 수 없는 곳: 건물 앞쪽 바닥 (건물 뒤로는 돌아다닐 수 있다)
+const OBST = VOBJ.filter(o => o.block).map(o => ({ x0: o.x - o.w / 2 - 6, x1: o.x + o.w / 2 + 6, y0: o.b - (o.k === 'wall' ? 60 : 45), y1: o.b + 6 }));
+const blockedAt = (x, y) => OBST.some(r => x > r.x0 && x < r.x1 && y > r.y0 && y < r.y1);
+
 // 평범한 사후세계 시민들 (x 를 중심으로 range 만큼 어슬렁거림)
 const CITIZENS = [
+  // 1줄 강가
   { name: '문지기 혼령', look: 'guard', x: 270, y: 440, range: 15, lines: [
     '이 문을 지나면 이승이다. 산 사람 냄새가 아직 나는구나.',
     '등불 아래에서는 상처가 다 낫지 않아. 비어 있는 것의 셋 중 둘만 아물지.',
@@ -499,15 +556,53 @@ const CITIZENS = [
   { name: '뱃사공', look: 'ferryman', x: 2640, y: 370, range: 8, lines: [
     '강을 건너려면 노잣돈이 필요해. 넌 아직 건널 때가 아니야.',
     '저 강 밑에 가라앉은 것들이 있어. 가끔 수면 위로 눈만 내놓고 보지.'] },
+  // 2줄 윗동네
+  { name: '장독 할아버지', look: 'elder', x: 1190, y: 790, range: 20, lines: [
+    '장맛이 변하면 누가 이승으로 돌아간 거야.',
+    '아까 된장 냄새를 맡고 산 사람인 줄 알았네. 자네였구먼.'] },
+  { name: '마당 쓰는 아이', look: 'child', x: 640, y: 860, range: 90, lines: [
+    '쓸어도 쓸어도 낙엽이 쌓여. 이승에서 떨어진 거래.',
+    '이 골목으로 내려가면 탑 광장이야. 거기 탑 도는 사람한테는 말 걸지 마.'] },
+  { name: '빨래하는 혼령', look: 'woman', x: 1890, y: 790, range: 40, lines: [
+    '빨래가 안 말라. 여긴 해가 안 뜨거든.',
+    '그래도 매일 빨아. 이승에서 하던 대로 하면 덜 무서워.'] },
+  // 3줄 탑 광장
+  { name: '탑 도는 망자', look: 'mourner', x: 1400, y: 1240, range: 110, lines: [
+    '탑을 백 바퀴 돌면 소원이 이루어진대. 지금 아흔아홉 바퀴째야.',
+    '…아흔아홉 바퀴째야.',
+    '…아흔아홉 바퀴째야.'] },
+  { name: '연등 다는 혼령', look: 'keeper', x: 1720, y: 1300, range: 60, lines: [
+    '연등 하나에 이름 하나. 아무도 기억 안 하는 이름이 제일 밝게 타.',
+    '네 연등은 아직 없어. 다행이지.'] },
+  { name: '숨바꼭질 꼬마', look: 'child', x: 700, y: 1290, range: 180, lines: [
+    '못 찾겠다 꾀꼬리… 너 혹시 내 친구 봤어?',
+    '백 년째 숨어 있어. 이번엔 진짜 잘 숨었나 봐.'] },
+  // 4줄 저승사
+  { name: '스님 혼령', look: 'monk', x: 1300, y: 1700, range: 40, lines: [
+    '종이 울리면 길 잃은 넋들이 돌아온다. 너도 길 잃지 마라.',
+    '원한이 깊은 혼일수록 원념도 깊지. 대장장이가 그걸 좋아한다.'] },
+  { name: '종지기', look: 'guard', x: 1760, y: 1690, range: 15, lines: [
+    '종은 하루에 한 번만 친다. 두 번 치면…',
+    '…두 번 친 날은 없던 걸로 해 줘.'] },
+  // 5줄 아랫동네
+  { name: '주모', look: 'woman', x: 1560, y: 2130, range: 30, lines: [
+    '저승 주막에 어서 와. 여기 술은 마실 때마다 이승 일이 하나씩 흐려지지.',
+    '넌 아직 마시지 마. 돌아갈 데가 있잖아.'] },
+  { name: '술 취한 선비', look: 'scholar', x: 1250, y: 2200, range: 60, lines: [
+    '내가… 원귀를 열 마리 잡았어. 아니 열한 마리…',
+    '…아니, 내가 잡혔던가?'] },
+  { name: '남문 문지기', look: 'guard', x: 1400, y: 2400, range: 25, lines: [
+    '남문은 닫혀 있다. 저 너머는 아직 아무도 가 보지 못했지.',
+    '언젠가 악귀가 저 문을 두드렸다. 그날 이후로 한 번도 안 열었어.'] },
 ];
-CITIZENS.forEach((c, i) => { c.hx = c.x; c.tx = c.x; c.wait = i * 0.7; c.f = 1; c.t = Math.random() * 10; });
+CITIZENS.forEach((c, i) => { c.hx = c.x; c.tx = c.x; c.wait = (i % 7) * 0.7; c.f = 1; c.t = Math.random() * 10; });
 const PORTAL = { x: 95, y: 370 };
-const AP = { x: 190, y: 400, f: 1 };
-let acam = 0, talking = null, chat = null;   // talking = 상점 NPC 와 대화 중, chat = 시민과 대화 중 { c, i }
+const AP = { x: 190, y: 400, f: 1, view: 'side' };   // view: side 옆모습 · back 뒷모습(위로 걸음) · front 앞모습(아래로 걸음)
+let acam = 0, acamY = 0, talking = null, chat = null;   // talking = 상점 NPC 와 대화 중, chat = 시민과 대화 중 { c, i }
 function enterAfterlife() {
   state = 'afterlife'; mouse.down = false;
   P.sp = P.maxSp;   // 체력은 사후세계에서 안 찬다 (세이브 포인트에서 2/3 만)
-  AP.x = 190; AP.y = 400; AP.f = 1; acam = 0; talking = null; chat = null;
+  AP.x = 190; AP.y = 400; AP.f = 1; AP.view = 'side'; acam = 0; acamY = 0; talking = null; chat = null;
   after.classList.add('hide');
   msg('사후세계 · 저승 나루터 마을', 2.5, '#9ef0e4');
   sfx(220, 1.2, 'sine', 0.1, 440);
@@ -560,10 +655,19 @@ function updateAfterlife(dt) {
   if (talking || chat) return;
   let mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), my = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
   const len = Math.hypot(mx, my);
-  if (len) { mx /= len; my /= len; P.moving = true; P.walk += dt; if (mx) AP.f = mx > 0 ? 1 : -1; }
-  AP.x = clamp(AP.x + mx * 200 * dt, 40, AW - 40);
-  AP.y = clamp(AP.y + my * 160 * dt, 280, ROAD_BOT);
+  if (len) {
+    // 보는 모습: 위아래로 걸으면 뒷모습/앞모습, 옆으로 걸으면 옆모습 (가만히 있으면 마지막 모습)
+    if (my && Math.abs(my) >= Math.abs(mx)) AP.view = my < 0 ? 'back' : 'front';
+    else { AP.view = 'side'; AP.f = mx > 0 ? 1 : -1; }
+    mx /= len; my /= len; P.moving = true; P.walk += dt;
+  }
+  // 건물에 막히면 그 방향으로는 못 간다 (옆으로는 미끄러지듯 지나감)
+  const nx = clamp(AP.x + mx * 200 * dt, 40, AW - 40);
+  if (!blockedAt(nx, AP.y)) AP.x = nx;
+  const ny = clamp(AP.y + my * 190 * dt, 280, AH - 20);
+  if (!blockedAt(AP.x, ny)) AP.y = ny;
   acam = clamp(AP.x - W / 2, 0, AW - W);
+  acamY = clamp(AP.y - 380, 0, AH - H);
 }
 const priceStr = p => Object.entries(p).map(([k, v]) => `<span class="c-${k}">${PT_NAMES[k]} ${v}</span>`).join(' · ');
 const canPay = p => Object.entries(p).every(([k, v]) => pts[k] >= v);
@@ -985,7 +1089,8 @@ let texts2 = [];
 
 // ===== 그리기: 캐릭터 =====
 function shadow(x, y, r) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.35, 0, 0, 7); ctx.fill(); }
-function drawPlayer(x, y) {
+function drawPlayer(x, y, view = 'side') {
+  if (view !== 'side') return drawPlayerFB(x, y, view);   // 사후세계에서 위아래로 걸을 때
   // 보는 방향: 공격할 땐 마우스 쪽, 왼쪽·오른쪽으로 걸을 땐 걷는 쪽, 가만히 있을 땐 마지막에 보던 쪽
   let a;
   if (state === 'play') {
@@ -1398,7 +1503,7 @@ function drawDead() {
 }
 
 // ===== 사후세계 그리기 =====
-const VB = 262;   // 마을 건물들이 서 있는 줄 (y)
+let VB = 262;   // 지금 그리는 건물이 서 있는 줄 (y). 줄마다 바꿔 가며 그린다
 function drawNpc(id) {
   // (0,0) 이 발 위치, 1.3배 크기로 그림
   if (id === 'reaper') {
@@ -1458,12 +1563,12 @@ function giwaRoof(x, w, ry, tiers) {
     for (let k = x - ww / 2 + 16; k < x + ww / 2 - 14; k += 7) { ctx.beginPath(); ctx.moveTo(k, yy - 21); ctx.lineTo(k + (k - x) * 0.05, yy - 4); ctx.stroke(); }
   }
 }
-function drawHouse(x, w, h, seed, tiers = 1) {
+function drawHouse(x, w, h, seed, tiers = 1, col = '#3a2b21') {
   const b = VB;
   ctx.fillStyle = '#1b2627'; ctx.fillRect(x - w / 2 - 8, b - 10, w + 16, 10);           // 돌 기단
   ctx.fillStyle = '#2a3634'; ctx.fillRect(x - w / 2, b - 10 - h, w, h);                  // 벽
   const cols = Math.max(2, Math.round(w / 55));
-  for (let k = 0; k <= cols; k++) { ctx.fillStyle = '#3a2b21'; ctx.fillRect(x - w / 2 + k * (w / cols) - 3, b - 10 - h, 6, h); }
+  for (let k = 0; k <= cols; k++) { ctx.fillStyle = col; ctx.fillRect(x - w / 2 + k * (w / cols) - 3, b - 10 - h, 6, h); }
   // 창호지 창문 (몇 개는 불이 켜짐)
   for (let k = 0; k < cols; k++) {
     const wx = x - w / 2 + k * (w / cols) + w / cols / 2, wy = b - 10 - h * 0.62;
@@ -1602,15 +1707,21 @@ function drawVillageBack() {
     const x = ((hash(i, 60) * (W + 300) + time * (20 + hash(i, 61) * 30) - acam * 0.8) % (W + 300) + W + 300) % (W + 300) - 150, y = 155 + hash(i, 62) * 40;
     ctx.fillStyle = `rgba(180,255,240,${0.3 + 0.3 * Math.sin(time * 2 + i)})`; ctx.beginPath(); ctx.arc(x, y, 1.5 + hash(i, 63) * 2, 0, 7); ctx.fill();
   }
-  // 땅과 마을 길
-  const gg = ctx.createLinearGradient(0, 200, 0, H);
-  gg.addColorStop(0, '#0d2a2c'); gg.addColorStop(1, '#071718');
-  ctx.fillStyle = gg; ctx.fillRect(0, 200, W, H - 200);
-  ctx.fillStyle = 'rgba(70,90,80,0.22)'; ctx.fillRect(0, 300, W, 190);
-  for (let i = Math.floor(acam / 60); i <= Math.floor((acam + W) / 60) + 1; i++) {
-    const x = i * 60 + hash(i, 85) * 40 - acam, y = 310 + hash(i, 86) * 170;
-    ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(x, y, 8 + hash(i, 87) * 8, 3, 0, 0, 7); ctx.fill();
-  }
+  // 땅과 마을 길 (줄마다 건물 앞에 큰길이 있다)
+  const gg = ctx.createLinearGradient(0, 200, 0, 540);
+  gg.addColorStop(0, '#0d2a2c'); gg.addColorStop(1, '#0a1f21');
+  ctx.fillStyle = gg; ctx.fillRect(0, 200, W, 340);
+  ctx.fillStyle = '#0a1f21'; ctx.fillRect(0, 540, W, AH - 540);
+  ROWS.forEach((b, r) => {
+    if (b + 240 < acamY || b > acamY + H) return;
+    ctx.fillStyle = 'rgba(70,90,80,0.22)'; ctx.fillRect(0, b + 38, W, 190);
+    for (let i = Math.floor(acam / 60); i <= Math.floor((acam + W) / 60) + 1; i++) {
+      const x = i * 60 + hash(i + r * 97, 85) * 40 - acam, y = b + 48 + hash(i + r * 97, 86) * 170;
+      ctx.fillStyle = 'rgba(0,0,0,0.18)'; ctx.beginPath(); ctx.ellipse(x, y, 8 + hash(i, 87) * 8, 3, 0, 0, 7); ctx.fill();
+    }
+  });
+  VB = ROWS[0];
+  if (acamY > 440) return;   // 맨 윗줄이 화면 밖이면 그 건물들은 안 그림
   // 건물들 (화면 밖은 건너뜀)
   const vis = (x, w) => x + w / 2 + 40 > acam && x - w / 2 - 40 < acam + W;
   const S = x => x - acam;
@@ -1654,7 +1765,7 @@ function drawVillageBack() {
 // --- 사후세계 시민 ---
 function drawCitizen(c) {
   const x = c.x - acam, y = c.y, f = c.f, t = c.t;
-  if (x < -60 || x > W + 60) return;
+  if (x < -60 || x > W + 60 || y < acamY - 20 || y - 110 > acamY + H) return;
   const bob = Math.sin(t * 2 + c.hx) * 2;
   shadow(x, y, c.look === 'cat' ? 10 : c.look === 'child' ? 11 : 15);
   ctx.save();
@@ -1726,6 +1837,25 @@ function drawCitizen(c) {
       ctx.globalAlpha = 1; ctx.fillStyle = '#c8f06a'; ctx.fillRect(12, -18, 2, 2); ctx.fillRect(16, -18, 2, 2);
       break;
     }
+    case 'elder':
+      robe(9, 14, 44, 'rgba(190,190,180,1)');
+      head(-52, 8); eyes2(-52);
+      ctx.fillStyle = 'rgba(240,240,235,1)'; ctx.beginPath(); ctx.moveTo(1, -47); ctx.lineTo(9, -47); ctx.lineTo(5, -30); ctx.fill();   // 흰 수염
+      ctx.fillStyle = 'rgba(15,15,18,1)'; ctx.fillRect(-7, -64, 14, 7);                                                            // 탕건
+      ctx.strokeStyle = '#5a4430'; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(12, 4); ctx.lineTo(16, -38); ctx.stroke();     // 지팡이
+      break;
+    case 'mourner':
+      robe(9, 15, 48, 'rgba(196,180,140,1)');
+      ctx.fillStyle = 'rgba(150,130,95,1)'; ctx.fillRect(-9, -30, 18, 3);                                                           // 새끼줄 띠
+      ctx.fillStyle = 'rgba(196,180,140,1)'; ctx.beginPath(); ctx.moveTo(-11, -44); ctx.lineTo(0, -72); ctx.lineTo(11, -44); ctx.fill();   // 굴건 (얼굴을 가림)
+      ctx.fillStyle = 'rgba(20,25,25,0.85)'; ctx.beginPath(); ctx.ellipse(3, -52, 5, 6, 0, 0, 7); ctx.fill();                      // 그늘진 얼굴
+      break;
+    case 'monk':
+      robe(9, 15, 46, 'rgba(110,112,108,1)');
+      ctx.strokeStyle = 'rgba(140,70,50,1)'; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(-8, -44); ctx.lineTo(9, -10); ctx.stroke();   // 가사
+      head(-54, 9, 'rgba(225,215,200,1)'); eyes2(-54);
+      ctx.fillStyle = '#3a2b21'; for (let k = 0; k < 7; k++) { ctx.beginPath(); ctx.arc(10 + Math.cos(k) * 3, -30 + k * 2.5, 1.6, 0, 7); ctx.fill(); }   // 염주
+      break;
     case 'ferryman':
       robe(9, 15, 44, 'rgba(90,95,85,1)');
       head(-52, 8); eyes2(-52);
@@ -1752,15 +1882,248 @@ function drawChatBox() {
   ctx.textAlign = 'right'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#7fbfb6';
   ctx.fillText(chat.i < c.lines.length - 1 ? `F 다음 (${chat.i + 1}/${c.lines.length}) · Esc 닫기` : 'F 닫기', bx + bw - 14, by + bh - 12);
 }
+// --- 2~5줄의 건물과 소품 ---
+function drawJars(x) {
+  const b = VB;
+  ctx.fillStyle = '#2a3232'; ctx.fillRect(x - 55, b - 14, 110, 14);
+  const jar = (jx, jy, s) => {
+    ctx.fillStyle = '#3e2c22'; ctx.beginPath(); ctx.ellipse(jx, jy - 14 * s, 13 * s, 15 * s, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#2a1e18'; ctx.fillRect(jx - 8 * s, jy - 31 * s, 16 * s, 5 * s);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)'; ctx.beginPath(); ctx.ellipse(jx - 5 * s, jy - 18 * s, 3 * s, 7 * s, 0, 0, 7); ctx.fill();
+  };
+  [[-36, 1.2], [0, 1.4], [36, 1.15]].forEach(([dx, s]) => jar(x + dx, b - 22, s));
+  [[-20, 0.9], [20, 1], [50, 0.8], [-50, 0.85]].forEach(([dx, s]) => jar(x + dx, b - 6, s));
+}
+function drawLaundry(x) {
+  const b = VB;
+  ctx.fillStyle = '#3a2b21'; ctx.fillRect(x - 72, b - 90, 5, 90); ctx.fillRect(x + 67, b - 90, 5, 90);
+  ctx.strokeStyle = '#8a7a5a'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x - 70, b - 86); ctx.quadraticCurveTo(x, b - 70, x + 70, b - 86); ctx.stroke();
+  for (let k = 0; k < 5; k++) {
+    const cx = x - 52 + k * 26, cy = b - 82 + Math.pow((cx - x) / 70, 2) * -16 + 14, sw = Math.sin(time * 1.3 + k) * 3;
+    ctx.fillStyle = ['rgba(230,228,220,0.85)', 'rgba(180,200,200,0.8)', 'rgba(230,228,220,0.85)', 'rgba(200,180,170,0.8)', 'rgba(230,228,220,0.85)'][k];
+    ctx.beginPath(); ctx.moveTo(cx - 9, cy); ctx.lineTo(cx + 9, cy); ctx.lineTo(cx + 8 + sw, cy + 26); ctx.lineTo(cx - 8 + sw, cy + 24); ctx.fill();
+  }
+}
+function drawPond(x) {
+  const b = VB, cy = b - 20;
+  ctx.fillStyle = '#2a3434'; ctx.beginPath(); ctx.ellipse(x, cy, 100, 30, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#082629'; ctx.beginPath(); ctx.ellipse(x, cy, 90, 24, 0, 0, 7); ctx.fill();
+  for (let k = 0; k < 3; k++) {   // 물결
+    const p = (time * 0.3 + k / 3) % 1;
+    ctx.strokeStyle = `rgba(150,230,220,${0.25 * (1 - p)})`; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.ellipse(x - 30 + k * 30, cy, 8 + p * 30, 3 + p * 8, 0, 0, 7); ctx.stroke();
+  }
+  [[-55, 2, '#f0b8c8'], [-10, -6, '#f4f0e8'], [40, 4, '#f0b8c8'], [65, -4, '#f4f0e8']].forEach(([dx, dy, c], i) => {
+    const lx = x + dx, ly = cy + dy + Math.sin(time + i) * 1.5;
+    ctx.fillStyle = '#2e5a3a'; ctx.beginPath(); ctx.ellipse(lx + 6, ly + 3, 9, 3.5, 0, 0, 7); ctx.fill();   // 연잎
+    ctx.fillStyle = c; ctx.beginPath(); ctx.moveTo(lx - 6, ly); ctx.lineTo(lx - 3, ly - 8); ctx.lineTo(lx, ly - 3); ctx.lineTo(lx + 3, ly - 9); ctx.lineTo(lx + 6, ly); ctx.fill();
+    warmGlow(lx, ly - 4, 16, c === '#f0b8c8' ? '255,170,200' : '255,250,230', 0.45);
+  });
+}
+function drawLanternString(x, w) {
+  const b = VB;
+  ctx.fillStyle = '#3a2b21'; ctx.fillRect(x - w / 2 - 3, b - 130, 6, 130); ctx.fillRect(x + w / 2 - 3, b - 130, 6, 130);
+  for (const sag of [0, 18]) {
+    ctx.strokeStyle = '#6b5a40'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x - w / 2, b - 126 + sag); ctx.quadraticCurveTo(x, b - 96 + sag, x + w / 2, b - 126 + sag); ctx.stroke();
+    const n = 9;
+    for (let k = 1; k < n; k++) {
+      const t = k / n, lx = x - w / 2 + w * t, ly = b - 126 + sag + 30 * 4 * t * (1 - t) * 0.5 * 2 / 2 + Math.sin(time * 1.5 + k) * 1.5;
+      const col = ['220,70,70', '90,200,190', '240,200,90'][(k + sag) % 3];
+      ctx.fillStyle = `rgba(${col},0.9)`; ctx.beginPath(); ctx.ellipse(lx, ly + 8, 6, 8, 0, 0, 7); ctx.fill();
+      warmGlow(lx, ly + 8, 18, col, 0.35);
+    }
+  }
+}
+function drawPagoda(x) {
+  const b = VB;
+  ctx.fillStyle = '#4a5050'; ctx.fillRect(x - 40, b - 16, 80, 16);
+  let y = b - 16;
+  for (let k = 0; k < 5; k++) {
+    const w = 44 - k * 6, h = 18 - k;
+    ctx.fillStyle = '#5a6060'; ctx.fillRect(x - w / 2, y - h, w, h);
+    ctx.fillStyle = '#3a4040'; ctx.beginPath(); ctx.moveTo(x - w / 2 - 12, y - h); ctx.lineTo(x + w / 2 + 12, y - h); ctx.lineTo(x + w / 2 + 4, y - h - 6); ctx.lineTo(x - w / 2 - 4, y - h - 6); ctx.fill();
+    y -= h + 6;
+  }
+  ctx.fillStyle = '#6b7070'; ctx.fillRect(x - 2, y - 22, 4, 22);
+  for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(x, y - 6 - k * 6, 4 - k, 0, 7); ctx.fill(); }
+  warmGlow(x, y - 20, 30, '160,255,235', 0.35 + 0.15 * Math.sin(time * 1.5));
+}
+function drawBamboo(x, w) {
+  const b = VB;
+  for (let k = 0; k < 14; k++) {
+    const bx = x - w / 2 + hash(k, 120) * w, h = 120 + hash(k, 121) * 70, sw = Math.sin(time * 0.8 + k) * 4;
+    ctx.strokeStyle = k % 2 ? '#2f5a3a' : '#3a6a44'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.moveTo(bx, b); ctx.quadraticCurveTo(bx, b - h / 2, bx + sw, b - h); ctx.stroke();
+    ctx.strokeStyle = '#1e3a26'; ctx.lineWidth = 1;
+    for (let s = 24; s < h; s += 24) { ctx.beginPath(); ctx.moveTo(bx - 3 + sw * s / h, b - s); ctx.lineTo(bx + 3 + sw * s / h, b - s); ctx.stroke(); }
+    ctx.fillStyle = '#2f5a3a';
+    for (let l = 0; l < 3; l++) { const ly = b - h + l * 14, lx = bx + sw; ctx.beginPath(); ctx.ellipse(lx + (l % 2 ? 9 : -9), ly, 10, 2.5, (l % 2 ? 0.4 : -0.4), 0, 7); ctx.fill(); }
+  }
+}
+function drawTemple(x, w, h, seed) {
+  const b = VB;
+  drawHouse(x, w, h, seed, 2, '#6a2a22');
+  ctx.fillStyle = '#3a4040'; for (let k = 0; k < 3; k++) ctx.fillRect(x - 60 + k * 8, b - 4 + k * 4 - 8, 120 - k * 16, 5);   // 돌계단
+  for (const s of [-1, 1]) {   // 향 연기
+    ctx.fillStyle = '#3a3a30'; ctx.fillRect(x + s * 110 - 6, b - 22, 12, 22);
+    for (let k = 0; k < 4; k++) {
+      const p = (time * 0.2 + k / 4) % 1;
+      ctx.fillStyle = `rgba(200,210,200,${0.18 * (1 - p)})`; ctx.beginPath(); ctx.arc(x + s * 110 + Math.sin(p * 8 + k) * 6, b - 26 - p * 60, 3 + p * 8, 0, 7); ctx.fill();
+    }
+  }
+}
+function drawBellPavilion(x) {
+  const b = VB;
+  ctx.fillStyle = '#1b2627'; ctx.fillRect(x - 58, b - 10, 116, 10);
+  ctx.fillStyle = '#6a2a22'; ctx.fillRect(x - 50, b - 100, 7, 90); ctx.fillRect(x + 43, b - 100, 7, 90);
+  giwaRoof(x, 110, b - 100, 1);
+  const sw = Math.sin(time * 0.7) * 0.03;
+  ctx.save(); ctx.translate(x, b - 96); ctx.rotate(sw);
+  ctx.fillStyle = '#3d4a3a'; ctx.beginPath(); ctx.moveTo(-6, 0); ctx.lineTo(6, 0); ctx.lineTo(20, 52); ctx.quadraticCurveTo(0, 60, -20, 52); ctx.fill();
+  ctx.fillStyle = '#56664e'; ctx.fillRect(-18, 36, 36, 3); ctx.fillRect(-12, 14, 24, 2);
+  ctx.restore();
+  ctx.fillStyle = '#4a3626'; ctx.fillRect(x + 22, b - 64, 34, 7);   // 당목
+}
+function drawShrine(x) {
+  const b = VB;
+  ctx.fillStyle = '#1e1714';
+  ctx.beginPath(); ctx.moveTo(x - 30, b - 6); ctx.quadraticCurveTo(x - 24, b - 50, x - 30, b - 90); ctx.lineTo(x - 18, b - 90); ctx.quadraticCurveTo(x - 12, b - 50, x - 14, b - 6); ctx.fill();
+  ctx.strokeStyle = '#1e1714'; ctx.lineWidth = 5;
+  for (const [dx, dy] of [[-40, -40], [20, -30], [-10, -55]]) { ctx.beginPath(); ctx.moveTo(x - 24, b - 85); ctx.quadraticCurveTo(x - 24 + dx / 2, b - 100, x - 24 + dx, b - 90 + dy); ctx.stroke(); }
+  ctx.strokeStyle = '#d8d0b8'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(x - 34, b - 50); ctx.quadraticCurveTo(x - 22, b - 44, x - 10, b - 50); ctx.stroke();
+  for (let k = 0; k < 4; k++) { ctx.fillStyle = '#f0ece0'; ctx.fillRect(x - 32 + k * 6, b - 48, 3, 8 + Math.sin(time * 2 + k)); }
+  // 돌무더기
+  ctx.fillStyle = '#4a5050';
+  for (let r = 0; r < 4; r++) for (let k = 0; k < 4 - r; k++) { ctx.beginPath(); ctx.ellipse(x + 24 + (k - (3 - r) / 2) * 14, b - 6 - r * 11, 8, 6, 0, 0, 7); ctx.fill(); }
+  warmGlow(x + 24, b - 50, 20, '255,190,110', 0.4);
+}
+function drawTavern(x, w, h, seed) {
+  const b = VB;
+  drawHouse(x, w, h, seed);
+  ctx.fillStyle = '#4a3626'; ctx.fillRect(x + w / 2 - 12, b - h - 4, 3, 30);
+  const ly = b - h + 30 + Math.sin(time * 1.4) * 2;
+  ctx.fillStyle = 'rgba(220,70,60,0.95)'; ctx.beginPath(); ctx.ellipse(x + w / 2 - 10, ly, 9, 12, 0, 0, 7); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.font = `bold 10px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText('주', x + w / 2 - 10, ly + 4);
+  warmGlow(x + w / 2 - 10, ly, 30, '255,120,90', 0.45);
+  ctx.fillStyle = '#4a3626'; ctx.fillRect(x - w / 2 + 10, b - 22, 60, 8); ctx.fillRect(x - w / 2 + 14, b - 14, 5, 14); ctx.fillRect(x - w / 2 + 61, b - 14, 5, 14);   // 평상
+}
+function drawSouthWall() {
+  const b = VB, top = b - 70;
+  ctx.fillStyle = '#2e3636'; ctx.fillRect(0, top, W, 70);
+  ctx.strokeStyle = '#222a2a'; ctx.lineWidth = 1;
+  for (let r = 0; r < 5; r++) for (let k = -1; k < W / 40 + 1; k++) ctx.strokeRect(k * 40 - (acam % 40) + (r % 2) * 20, top + r * 14, 40, 14);
+  ctx.fillStyle = '#121b1d'; ctx.fillRect(0, top - 10, W, 12);
+  const gx = AW / 2 - acam;
+  if (gx > -120 && gx < W + 120) {
+    ctx.fillStyle = '#5a2620'; ctx.fillRect(gx - 50, b - 96, 100, 96);
+    ctx.fillStyle = '#3a1814'; ctx.fillRect(gx - 1, b - 96, 2, 96);
+    ctx.fillStyle = '#b8a070'; for (let r = 0; r < 4; r++) for (const s of [-1, 1]) for (let k = 0; k < 3; k++) { ctx.beginPath(); ctx.arc(gx + s * (12 + k * 13), b - 82 + r * 22, 2, 0, 7); ctx.fill(); }
+    ctx.strokeStyle = '#2a2a2a'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(gx - 10, b - 50); ctx.lineTo(gx + 10, b - 50); ctx.stroke();   // 빗장
+    giwaRoof(gx, 130, b - 96, 1);
+  }
+}
+function drawVObj(o) {
+  const x = o.x - acam;
+  if (o.k !== 'wall' && (x + o.w / 2 + 60 < 0 || x - o.w / 2 - 60 > W)) return;
+  if (o.b < acamY - 20 || o.b - 230 > acamY + H) return;
+  VB = o.b;
+  switch (o.k) {
+    case 'house': drawHouse(x, o.w, o.h, o.seed, o.tiers || 1); break;
+    case 'jars': drawJars(x); break;
+    case 'laundry': drawLaundry(x); break;
+    case 'pond': drawPond(x); break;
+    case 'lanterns': drawLanternString(x, o.w); break;
+    case 'pagoda': drawPagoda(x); break;
+    case 'bamboo': drawBamboo(x, o.w); break;
+    case 'temple': drawTemple(x, o.w, o.h, o.seed); break;
+    case 'bell': drawBellPavilion(x); break;
+    case 'shrine': drawShrine(x); break;
+    case 'tavern': drawTavern(x, o.w, o.h, o.seed); break;
+    case 'wall': drawSouthWall(); break;
+  }
+  if (o.sign) {
+    const sy = { temple: o.b - 150, tavern: o.b - 112, pagoda: o.b - 160, bell: o.b - 140, shrine: o.b - 110, wall: o.b - 112 }[o.k] || o.b - 100;
+    sign(o.k === 'wall' ? AW / 2 - acam : x, sy, o.sign);
+  }
+}
+// 줄마다 길가에 선 돌 등불
+const ROW_LAMPS = [];
+ROWS.slice(1).forEach(b => { for (let i = 0; i < 6; i++) ROW_LAMPS.push({ x: 140 + i * 500, y: b + 226 }); });
+function drawRowLamp(l) {
+  const x = l.x - acam, y = l.y;
+  if (x < -40 || x > W + 40 || y < acamY - 10 || y - 60 > acamY + H) return;
+  ctx.fillStyle = '#29393b'; ctx.fillRect(x - 5, y - 30, 10, 30); ctx.fillRect(x - 12, y - 42, 24, 12); ctx.fillRect(x - 15, y - 46, 30, 5);
+  warmGlow(x, y - 36, 26, '160,255,235', 0.55);
+}
+
+// --- 사후세계에서 위아래로 걸을 때의 앞모습 · 뒷모습 ---
+function drawPlayerFB(x, y, view) {
+  const step = P.moving ? Math.sin(P.walk * 11) : 0;
+  shadow(x, y, 15);
+  const by = y - Math.abs(step) * 2;
+  // 발 (번갈아 앞뒤로)
+  ctx.fillStyle = '#0d0d12';
+  ctx.beginPath(); ctx.ellipse(x - 6, y - 2 - step * 2, 4.5, 3, 0, 0, 7); ctx.ellipse(x + 6, y - 2 + step * 2, 4.5, 3, 0, 0, 7); ctx.fill();
+  // 두루마기
+  ctx.fillStyle = '#20263f';
+  ctx.beginPath(); ctx.moveTo(x - 15, by - 3); ctx.lineTo(x + 15, by - 3); ctx.lineTo(x + 10, by - 38); ctx.lineTo(x - 10, by - 38); ctx.fill();
+  // 팔 (걸을 때 앞뒤로 흔들림)
+  ctx.strokeStyle = '#20263f'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(x - 11, by - 33); ctx.lineTo(x - 15, by - 16 + step * 3); ctx.moveTo(x + 11, by - 33); ctx.lineTo(x + 15, by - 16 - step * 3); ctx.stroke();
+  ctx.fillStyle = '#e8d6c0'; ctx.beginPath(); ctx.arc(x - 15, by - 14 + step * 3, 2.5, 0, 7); ctx.arc(x + 15, by - 14 - step * 3, 2.5, 0, 7); ctx.fill();
+  if (view === 'front') {
+    ctx.fillStyle = '#e9e4d8'; ctx.beginPath(); ctx.moveTo(x - 7, by - 38); ctx.lineTo(x, by - 28); ctx.lineTo(x + 7, by - 38); ctx.lineTo(x + 4, by - 38); ctx.lineTo(x, by - 32); ctx.lineTo(x - 4, by - 38); ctx.fill();   // 깃
+    ctx.fillRect(x - 11, by - 26, 22, 3);   // 고름
+    ctx.fillStyle = '#e9e4d8'; ctx.fillRect(x + 1, by - 24, 2, 9);
+    ctx.fillStyle = '#e8d6c0'; ctx.beginPath(); ctx.arc(x, by - 46, 9, 0, 7); ctx.fill();
+    ctx.fillStyle = '#1a1a1a'; ctx.fillRect(x - 4, by - 47, 2, 2); ctx.fillRect(x + 2, by - 47, 2, 2);
+    ctx.fillStyle = '#b08a78'; ctx.fillRect(x - 1.5, by - 42, 3, 1);
+  } else {
+    ctx.strokeStyle = '#3a4266'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, by - 38); ctx.lineTo(x, by - 4); ctx.stroke();   // 등 솔기
+    ctx.fillStyle = '#e9e4d8'; ctx.fillRect(x - 11, by - 26, 22, 3);
+    ctx.fillStyle = '#e8d6c0'; ctx.fillRect(x - 3, by - 40, 6, 3);                         // 목덜미
+    ctx.fillStyle = '#16161c'; ctx.beginPath(); ctx.arc(x, by - 46, 9.3, 0, 7); ctx.fill();   // 뒷머리 (얼굴이 안 보임)
+  }
+  // 갓
+  ctx.fillStyle = 'rgba(15,15,20,0.92)';
+  ctx.beginPath(); ctx.ellipse(x, by - 52, 18, 4, 0, 0, 7); ctx.fill();
+  ctx.fillRect(x - 6, by - 65, 12, 13);
+}
+
+// --- 마을 지도 (왼쪽 아래) ---
+function drawMinimap() {
+  const mw = 150, mh = Math.round(mw * AH / AW), mx = 16, my = H - mh - 16, s = mw / AW;
+  ctx.fillStyle = 'rgba(4,14,16,0.82)'; ctx.fillRect(mx - 4, my - 18, mw + 8, mh + 22);
+  ctx.strokeStyle = 'rgba(120,230,215,0.4)'; ctx.lineWidth = 1; ctx.strokeRect(mx - 3.5, my - 17.5, mw + 7, mh + 21);
+  ctx.fillStyle = '#7fbfb6'; ctx.font = `11px ${FONT}`; ctx.textAlign = 'left'; ctx.fillText('마을 지도', mx, my - 5);
+  ctx.fillStyle = '#0b3a3d'; ctx.fillRect(mx, my + 150 * s, mw, 50 * s);                                  // 강
+  ctx.fillStyle = 'rgba(120,150,140,0.5)'; ctx.fillRect(mx, my + 225 * s, mw, 30 * s);                     // 강가 건물 줄
+  for (const r of OBST) { ctx.fillStyle = 'rgba(120,150,140,0.5)'; ctx.fillRect(mx + r.x0 * s, my + (r.y0 - 40) * s, (r.x1 - r.x0) * s, (r.y1 - r.y0 + 40) * s); }
+  const dot = (x, y, c, r = 2) => { ctx.fillStyle = c; ctx.beginPath(); ctx.arc(mx + x * s, my + y * s, r, 0, 7); ctx.fill(); };
+  for (const c of CITIZENS) dot(c.x, c.y, 'rgba(200,220,215,0.6)', 1.3);
+  dot(NPCS[0].x, NPCS[0].y, '#ff6b6b', 2.6); dot(NPCS[1].x, NPCS[1].y, '#4fd1c5', 2.6); dot(NPCS[2].x, NPCS[2].y, '#ffa94d', 2.6);
+  dot(PORTAL.x, PORTAL.y, '#ffcf9a', 2.6);
+  if (Math.floor(time * 3) % 2) dot(AP.x, AP.y, '#ffffff', 3);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.strokeRect(mx + acam * s, my + acamY * s, W * s, H * s);   // 지금 보이는 곳
+}
+
 function drawAfterlife() {
   glows = []; lights = [];
+  ctx.fillStyle = '#0a1f21'; ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(0, -acamY);   // 위아래로 움직이는 카메라
   drawVillageBack();
-  // 우물·시민·NPC·나를 앞뒤 순서대로
+  // 건물·우물·시민·NPC·나를 앞뒤(y) 순서대로
   const near = talking || chat ? null : nearAfter();
   const list = [{ y: 345, f: () => { if (1620 - acam > -60 && 1620 - acam < W + 60) drawWell(1620 - acam, 345); } }];
+  for (const o of VOBJ) list.push({ y: o.b, f: () => drawVObj(o) });
+  for (const l of ROW_LAMPS) list.push({ y: l.y, f: () => drawRowLamp(l) });
   for (const n of NPCS) list.push({ y: n.y, f: () => {
     const x = n.x - acam, on = near === n.id || talking === n.id;
-    if (x < -80 || x > W + 80) return;
+    if (x < -80 || x > W + 80 || n.y - 140 > acamY + H || n.y < acamY - 20) return;
     shadow(x, n.y, 22);
     if (on) warmGlow(x, n.y - 40, 90, '120,255,230', 0.22);
     ctx.save(); ctx.translate(x, n.y); ctx.scale(1.3, 1.3); drawNpc(n.id); ctx.restore();
@@ -1772,7 +2135,7 @@ function drawAfterlife() {
     ctx.fillText(label, x, n.y - 118);
   } });
   for (const c of CITIZENS) list.push({ y: c.y, f: () => drawCitizen(c) });
-  list.push({ y: AP.y, f: () => drawPlayer(AP.x - acam, AP.y) });
+  list.push({ y: AP.y, f: () => drawPlayer(AP.x - acam, AP.y, AP.view) });
   list.sort((a, b) => a.y - b.y).forEach(o => o.f());
   // 가까이 있는 상대 안내
   if (near) {
@@ -1784,13 +2147,16 @@ function drawAfterlife() {
     ctx.globalAlpha = 0.7 + 0.3 * Math.sin(time * 4); ctx.fillStyle = col;
     ctx.fillText(text, tx - acam, ty); ctx.globalAlpha = 1;
   }
+  ctx.restore();
   if (chat) drawChatBox();
+  else drawMinimap();
   // 포인트와 조작 안내
+  ctx.fillStyle = 'rgba(4,14,16,0.6)'; ctx.fillRect(10, 10, 530, 24);
   ctx.textAlign = 'right'; ctx.font = `bold 14px ${FONT}`;
   let yy = 26;
   for (const k of ['soul', 'tear', 'grudge']) { ctx.fillStyle = PT_COLORS[k]; ctx.fillText(`${PT_NAMES[k]} ${pts[k]}`, W - 20, yy); yy += 20; }
   ctx.textAlign = 'left'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#7fbfb6';
-  ctx.fillText('WASD 이동 · 누구에게나 다가가서 F 로 말 걸기 · 왼쪽 끝 문으로 이승에 돌아감', 20, 26);
+  ctx.fillText('WASD 이동 · 누구에게나 다가가서 F 로 말 걸기 · 강가 왼쪽 끝 문으로 이승에 돌아감', 20, 26);
   drawMsgs();
 }
 

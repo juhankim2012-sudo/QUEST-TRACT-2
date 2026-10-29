@@ -131,7 +131,44 @@ test('4-2. 사후세계 마을: 평범한 시민들과도 이야기할 수 있�
   const xs = CITIZENS.map(c => c.x); run(8);
   check(CITIZENS.filter((c, i) => Math.abs(c.x - xs[i]) > 1).length >= 4, '시민들이 마을을 어슬렁거림');
   check(CITIZENS.every(c => Math.abs(c.x - c.hx) <= c.range + 1), '시민들이 자기 자리에서 멀리 안 감');
-  for (const n of NPCS) check(CITIZENS.every(c => Math.abs(c.hx - n.x) - c.range > 75), n.name + ' 근처에 시민이 없어서 상점 말 걸기를 가리지 않음');
+  for (const n of NPCS) check(CITIZENS.every(c => Math.abs(c.y - n.y) > 185 || Math.abs(c.hx - n.x) - c.range > 75), n.name + ' 근처에 시민이 없어서 상점 말 걸기를 가리지 않음');
+`);
+
+test('4-3. 큰 네모 마을: 위아래로 다니고, 건물은 못 지나감', `
+  reset(); enterAfterlife();
+  check(AH / AW > 0.85, '마을이 위아래로도 넓은 큰 네모 (' + AW + ' × ' + AH + ')');
+  // 걸어서 갈 수 있는 곳을 20px 칸으로 모두 찾아본다 (입구에서 출발)
+  const G = 20, cols = Math.ceil(AW / G), rows = Math.ceil(AH / G);
+  const free = (cx, cy) => { const x = cx * G + G / 2, y = cy * G + G / 2; return x >= 40 && x <= AW - 40 && y >= 280 && y <= AH - 20 && !blockedAt(x, y); };
+  const seen = new Set(), q = [[Math.floor(190 / G), Math.floor(400 / G)]];
+  seen.add(q[0].join());
+  while (q.length) { const [cx, cy] = q.pop(); for (const [dx, dy] of [[1,0],[-1,0],[0,1],[0,-1]]) { const nx = cx + dx, ny = cy + dy, k = nx + ',' + ny; if (!seen.has(k) && free(nx, ny)) { seen.add(k); q.push([nx, ny]); } } }
+  const reach = (x, y) => [[0,0],[1,0],[-1,0],[0,1],[0,-1]].some(([dx, dy]) => seen.has((Math.floor(x / G) + dx) + ',' + (Math.floor(y / G) + dy)));
+  const lost = CITIZENS.filter(c => !reach(c.x, c.y)).map(c => c.name);
+  check(lost.length === 0, '입구에서 걸어서 모든 시민에게 갈 수 있음' + (lost.length ? ' — 못 가는 시민: ' + lost.join(', ') : ''));
+  check(NPCS.every(n => reach(n.x, n.y + 40)), '상점 NPC 세 명에게 걸어서 갈 수 있음');
+  check(ROWS.every(b => reach(1400, b + 120) || reach(700, b + 120) || reach(2200, b + 120)), '다섯 줄의 길에 모두 갈 수 있음');
+  const inWall = CITIZENS.filter(c => [c.hx - c.range, c.hx, c.hx + c.range].some(x => blockedAt(x, c.y))).map(c => c.name);
+  check(inWall.length === 0, '시민이 건물 안에 서 있지 않음' + (inWall.length ? ' — ' + inWall.join(', ') : ''));
+  // 집 앞에서 위(W)로 걸어가면 막힌다
+  const h = VOBJ.find(o => o.k === 'house' && o.b === 700);
+  AP.x = h.x; AP.y = h.b + 40; keys.KeyW = true; run(2); keys.KeyW = false;
+  check(AP.y > h.b, '집 앞에서 W 를 눌러도 집을 뚫고 못 지나감 (멈춘 곳 y ' + Math.round(AP.y) + ', 집 ' + h.b + ')');
+  check(acamY > 0, '아래 동네로 내려가면 카메라도 내려감 (' + Math.round(acamY) + 'px)');
+  // 남문 너머로는 못 감
+  AP.x = 1400; AP.y = 2400; keys.KeyS = true; run(2); keys.KeyS = false;
+  check(AP.y < 2500 - 50, '닫힌 남문 너머로는 못 감');
+  // 위아래로 걸을 때 모습
+  AP.x = 1400; AP.y = 900;
+  keys.KeyW = true; run(0.2); keys.KeyW = false; const vUp = AP.view;
+  keys.KeyS = true; run(0.2); keys.KeyS = false; const vDown = AP.view;
+  run(0.5); const vIdle = AP.view;
+  keys.KeyA = true; run(0.2); keys.KeyA = false; const vSide = AP.view;
+  check(vUp === 'back' && vDown === 'front', 'W 로 걸으면 뒷모습, S 로 걸으면 앞모습');
+  check(vIdle === 'front', '멈추면 마지막 모습(앞모습) 그대로');
+  check(vSide === 'side' && AP.f === -1, 'A 로 걸으면 왼쪽을 보는 옆모습');
+  drawAfterlife();
+  check(true, '마을 화면을 그려도 오류 없음');
 `);
 
 test('5. 뒤에 몬스터가 있으면 카메라가 뒤로 감', `
