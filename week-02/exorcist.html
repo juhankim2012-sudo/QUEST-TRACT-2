@@ -144,6 +144,7 @@ function onKey(code) {
   if (state === 'afterlife') {
     if (talking) { if (code === 'Escape' || code === 'KeyF') closeTalk(); return; }
     if (chat) { if (code === 'Escape') chat = null; else if (code === 'KeyF') nextChat(); return; }
+    if (code === 'KeyR') startWarp();
     if (code === 'KeyF') {
       const n = nearAfter();
       if (n === 'portal') leaveAfterlife();
@@ -602,7 +603,7 @@ let acam = 0, acamY = 0, talking = null, chat = null;   // talking = 상점 NPC 
 function enterAfterlife() {
   state = 'afterlife'; mouse.down = false;
   P.sp = P.maxSp;   // 체력은 사후세계에서 안 찬다 (세이브 포인트에서 2/3 만)
-  AP.x = 190; AP.y = 400; AP.f = 1; AP.view = 'side'; acam = 0; acamY = 0; talking = null; chat = null;
+  AP.x = 190; AP.y = 400; AP.f = 1; AP.view = 'side'; acam = 0; acamY = 0; talking = null; chat = null; warp = 0;
   after.classList.add('hide');
   msg('사후세계 · 저승 나루터 마을', 2.5, '#9ef0e4');
   sfx(220, 1.2, 'sine', 0.1, 440);
@@ -637,6 +638,25 @@ function nearAfter() {
   }
   return best;
 }
+// R: 마을 어디서든 이승으로 가는 문 앞으로 바로 이동 (화면이 잠깐 어두워졌다가 밝아짐)
+const WARP_T = 0.7;
+let warp = 0;
+function startWarp() {
+  if (warp > 0) return;
+  if (nearAfter() === 'portal') { msg('이미 문 앞이다', 1.2, '#ffcf9a'); return; }
+  warp = WARP_T;
+  sfx(600, 0.6, 'sine', 0.07, 200);
+}
+function updateWarp(dt) {
+  const before = warp;
+  warp = Math.max(0, warp - dt);
+  if (before > WARP_T / 2 && warp <= WARP_T / 2) {
+    // 가장 어두울 때 문 앞으로 옮긴다
+    AP.x = PORTAL.x + 70; AP.y = PORTAL.y + 25; AP.view = 'side'; AP.f = -1;
+    acam = clamp(AP.x - W / 2, 0, AW - W); acamY = clamp(AP.y - 380, 0, AH - H);
+    sfx(300, 0.5, 'sine', 0.06, 700);
+  }
+}
 function updateAfterlife(dt) {
   // 시민들은 제자리 근처를 어슬렁거린다 (대화 중인 시민은 멈춤)
   for (const c of CITIZENS) {
@@ -652,6 +672,7 @@ function updateAfterlife(dt) {
     }
   }
   P.moving = false;
+  if (warp > 0) { updateWarp(dt); return; }
   if (talking || chat) return;
   let mx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0), my = (keys.KeyS ? 1 : 0) - (keys.KeyW ? 1 : 0);
   const len = Math.hypot(mx, my);
@@ -2151,12 +2172,19 @@ function drawAfterlife() {
   if (chat) drawChatBox();
   else drawMinimap();
   // 포인트와 조작 안내
-  ctx.fillStyle = 'rgba(4,14,16,0.6)'; ctx.fillRect(10, 10, 530, 24);
+  ctx.fillStyle = 'rgba(4,14,16,0.6)'; ctx.fillRect(10, 10, 560, 24);
   ctx.textAlign = 'right'; ctx.font = `bold 14px ${FONT}`;
   let yy = 26;
   for (const k of ['soul', 'tear', 'grudge']) { ctx.fillStyle = PT_COLORS[k]; ctx.fillText(`${PT_NAMES[k]} ${pts[k]}`, W - 20, yy); yy += 20; }
   ctx.textAlign = 'left'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#7fbfb6';
-  ctx.fillText('WASD 이동 · 누구에게나 다가가서 F 로 말 걸기 · 강가 왼쪽 끝 문으로 이승에 돌아감', 20, 26);
+  ctx.fillText('WASD 이동 · 누구에게나 다가가서 F 로 말 걸기 · R 이승으로 가는 문 앞으로 바로 이동', 20, 26);
+  // 문 앞으로 이동할 때 잠깐 어두워짐
+  if (warp > 0) {
+    const k = 1 - Math.abs(warp - WARP_T / 2) / (WARP_T / 2);
+    ctx.fillStyle = `rgba(2,8,10,${k})`; ctx.fillRect(0, 0, W, H);
+    ctx.globalAlpha = k; ctx.textAlign = 'center'; ctx.font = `bold 16px ${FONT}`; ctx.fillStyle = '#ffcf9a';
+    ctx.fillText('이승으로 가는 문으로…', W / 2, H / 2); ctx.globalAlpha = 1;
+  }
   drawMsgs();
 }
 

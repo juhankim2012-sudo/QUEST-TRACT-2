@@ -171,6 +171,20 @@ test('4-3. 큰 네모 마을: 위아래로 다니고, 건물은 못 지나감', 
   check(true, '마을 화면을 그려도 오류 없음');
 `);
 
+test('4-4. R 키: 마을 어디서든 이승으로 가는 문 앞으로 바로 이동', `
+  reset(); enterAfterlife();
+  for (const [x, y] of [[1400, 2400], [2700, 400], [930, 1300]]) {
+    AP.x = x; AP.y = y; onKey('KeyR');
+    keys.KeyD = true; run(0.3); keys.KeyD = false;   // 이동하는 동안 키를 눌러도 상관없음
+    run(0.6);
+    check(nearAfter() === 'portal', '(' + x + ', ' + y + ') 에서 R → 문 앞에 도착');
+  }
+  onKey('KeyF'); check(state === 'play', '도착해서 F → 이승으로 돌아감');
+  reset(); enterAfterlife(); AP.x = 2000; AP.y = 1700; const c = CITIZENS[0];
+  AP.x = c.x; AP.y = c.y; onKey('KeyF'); onKey('KeyR');
+  check(warp === 0 && chat !== null, '시민과 대화 중에는 R 이 안 먹힘 (대화가 먼저)');
+`);
+
 test('5. 뒤에 몬스터가 있으면 카메라가 뒤로 감', `
   reset(); let c = cam.x; keys.KeyA = true; run(2); keys.KeyA = false;
   check(cam.x === c, '몬스터가 없으면 카메라가 뒤로 안 감');
