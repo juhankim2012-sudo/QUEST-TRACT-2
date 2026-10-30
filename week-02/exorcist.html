@@ -513,8 +513,10 @@ function hurt(m, base, nx, ny, kb) {
 }
 // ===== 떨어진 포인트 =====
 // 어둠 속에서 멀리 있는 몬스터의 눈빛과 똑같이 생겼다 (색, 크기, 눈 사이 거리, 높이, 깜빡임까지)
-//   혼불 = 좀비 눈 · 망자의 눈물 = 그림자 귀신 눈 · 원념 조각 = 해골 병사 눈
-const DROP_EYE = { soul: ['230,230,150', 1.8, 5], tear: ['255,255,255', 2, 8], grudge: ['255,70,60', 1.4, 6] };
+//   혼불 = 좀비 눈 · 망자의 눈물 = 그림자 귀신 눈 · 원념 조각 = 해골 병사 눈 · 생기 = 해골 기사 눈
+// 생기(life)는 포인트 점수에 안 들어가고 체력만 조금 채워 준다 (체력이 가득하면 안 주워짐)
+const DROP_EYE = { soul: ['230,230,150', 1.8, 5], tear: ['255,255,255', 2, 8], grudge: ['255,70,60', 1.4, 6], life: ['90,255,200', 2, 8] };
+const LIFE_SMALL = 8, LIFE_BIG = 15;
 function dropPoint(type, amt, x, y) {
   if (amt <= 0) return;
   y = clamp(y, ROAD_TOP + 14, ROAD_BOT);
@@ -527,6 +529,15 @@ function updateDrops(dt) {
     d.x = d.hx + Math.sin(d.t * 0.6 + d.seed * 10) * 10 + Math.sin(d.t * 1.7 + d.seed * 3) * 3;
     d.y = d.hy + Math.sin(d.t * 0.45 + d.seed * 5) * 6;
     if (Math.hypot(P.x - d.x, P.y - d.y) < 34) {
+      if (d.type === 'life') {
+        if (P.hp >= P.maxHp) continue;   // 체력이 가득하면 그대로 둔다 (나중에 주울 수 있게)
+        d.life = 0;
+        const heal = Math.min(d.amt, P.maxHp - P.hp);
+        P.hp += heal;
+        floatText(d.x, d.y - 60, `+${Math.round(heal)} 체력`, '#ff8a9a', 13);
+        sfx(520, 0.25, 'sine', 0.07, 780);
+        continue;
+      }
       d.life = 0;
       pts[d.type] += d.amt;
       floatText(d.x, d.y - 60, `+${d.amt} ${PT_NAMES[d.type]}`, PT_COLORS[d.type], 13);
@@ -577,6 +588,9 @@ function kill(m) {
       dropPoint(k, amt, m.x + (Math.random() - 0.5) * 70, m.y + (Math.random() - 0.5) * 50);
     }
   }
+  // 생기: 보통 몬스터는 8마리 중 1마리꼴로 조금, 강한 몬스터는 항상 조금 더 많이
+  if (m.elite) dropPoint('life', LIFE_BIG, m.x + (Math.random() - 0.5) * 70, m.y + (Math.random() - 0.5) * 50);
+  else if (Math.random() < 0.125) dropPoint('life', LIFE_SMALL, m.x + (Math.random() - 0.5) * 70, m.y + (Math.random() - 0.5) * 50);
   burst(mcx(m), mcy(m), m.ghost ? '#cfe8ff' : '#a89f8c', m.elite ? 40 : 14, m.elite ? 220 : 130, m.ghost);
   if (m.ghost) for (let i = 0; i < 6; i++) parts.push({ x: mcx(m) + Math.random() * 20 - 10, y: mcy(m), vx: Math.random() * 20 - 10, vy: -40 - Math.random() * 60, t: 1.2, max: 1.2, color: '#e7f5ff', size: 3, glow: true });
   monSound(m.type, 'die', m.x);
@@ -1215,7 +1229,10 @@ function update(dt) {
     if (natT <= 0) {
       natT = 5 + Math.random() * 6;
       const x = cam.x + W + 60 + Math.random() * 300, r = Math.random();
-      if (!inZoneWide(x, 40)) dropPoint(r < 0.75 ? 'soul' : r < 0.93 ? 'tear' : 'grudge', r < 0.75 ? 1 + Math.floor(Math.random() * 3) : 1, x, ROAD_TOP + 20 + Math.random() * (ROAD_BOT - ROAD_TOP - 20));
+      // 길에 저절로 떨어진 것: 혼불 65% · 생기 15% · 망자의 눈물 15% · 원념 조각 5%
+      const kind = r < 0.65 ? 'soul' : r < 0.8 ? 'life' : r < 0.95 ? 'tear' : 'grudge';
+      const amt = kind === 'soul' ? 1 + Math.floor(Math.random() * 3) : kind === 'life' ? LIFE_SMALL : 1;
+      if (!inZoneWide(x, 40)) dropPoint(kind, amt, x, ROAD_TOP + 20 + Math.random() * (ROAD_BOT - ROAD_TOP - 20));
     }
   }
   effects.forEach(e => e.t -= dt); effects = effects.filter(e => e.t > 0);

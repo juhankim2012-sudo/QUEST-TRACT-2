@@ -199,11 +199,32 @@ test('6. 떨어진 포인트를 직접 주워야 함', `
   const x0 = drops.map(d => d.x); run(1);
   check(drops.some((d, i) => Math.abs(d.x - x0[i]) > 0.5), '포인트가 제자리에서 조금씩 움직임');
   check(drops.every(d => Math.abs(d.x - d.hx) <= 13), '움직여도 제자리에서 멀리 안 감 (13px 이내)');
+  P.hp = 10;   // 생기도 떨어졌을 수 있으니 체력을 비워 둔다 (체력이 가득하면 생기는 안 주워짐)
   for (const d of [...drops]) { P.x = d.x; P.y = d.y; run(0.05); }
   check(drops.length === 0 && pts.soul > 0, '걸어가서 다 주움 → ' + JSON.stringify(pts));
   reset(); P.x = 3000; cam.x = P.x - W * 0.38; natT = 0.1; let nat = 0;   // 근처에 세이브 지역이 없는 곳
   for (let i = 0; i < 60 * 60; i++) { const n = drops.length; update(1 / 60); if (drops.length > n) nat++; }
   check(nat >= 5, '60초 동안 길에 저절로 생긴 포인트: ' + nat + '개');
+`);
+
+test('6-2. 생기: 포인트 점수는 그대로, 체력만 조금 회복', `
+  reset(); P.hp = 50; const before = { ...pts };
+  dropPoint('life', LIFE_SMALL, P.x + 100, P.y); const d = drops[drops.length - 1];
+  P.x = d.x; P.y = d.y; run(0.05);
+  check(P.hp === 58, '생기를 주우면 체력 50 → ' + P.hp + ' (+8)');
+  check(pts.soul === before.soul && pts.tear === before.tear && pts.grudge === before.grudge, '혼불·망자의 눈물·원념 조각은 그대로');
+  reset(); P.hp = P.maxHp; dropPoint('life', LIFE_SMALL, P.x + 100, P.y); const d2 = drops[drops.length - 1];
+  P.x = d2.x; P.y = d2.y; run(0.2);
+  check(drops.includes(d2), '체력이 가득하면 안 주워지고 그 자리에 남아 있음');
+  P.hp = P.maxHp - 3; P.x = d2.x; P.y = d2.y; run(0.05);
+  check(P.hp === P.maxHp && !drops.includes(d2), '조금 다쳤을 때 주우면 가득 찰 만큼만 회복 (넘치지 않음)');
+  check(DROP_EYE.life[0] === '90,255,200', '모습은 해골 기사 눈빛과 같은 색');
+  // 몬스터를 많이 잡으면 가끔 생기가 떨어진다
+  reset(); let lifeDrops = 0;
+  for (let i = 0; i < 400; i++) { drops = []; const m = spawnMonster('zombie', P.x + 300, P.y); kill(m); if (drops.some(x => x.type === 'life')) lifeDrops++; }
+  check(lifeDrops > 25 && lifeDrops < 80, '좀비 400마리 중 ' + lifeDrops + '마리가 생기를 떨어뜨림 (8마리 중 1마리꼴 = 약 50)');
+  reset(); drops = []; const el = spawnMonster('knight', P.x + 300, P.y); kill(el);
+  check(drops.some(x => x.type === 'life' && x.amt === LIFE_BIG), '강한 몬스터는 항상 생기(+15)를 떨어뜨림');
 `);
 
 test('7. 눈빛: 몬스터는 밝으면 사라지고, 포인트는 언제나 멀리 있는 몬스터 눈빛', `
