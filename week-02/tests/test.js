@@ -259,6 +259,55 @@ test('6-3. 몬스터 속성과 새 핼로윈 몬스터', `
   check(!appear(600).has('bat') && appear(1000).has('bat') && !appear(1700).has('scarecrow') && appear(2000).has('scarecrow') && !appear(2500).has('witch') && appear(2800).has('witch'), '박쥐 80m · 허수아비 180m · 마녀 260m 부터 나옴');
 `);
 
+test('6-4. 설정 창 · 몬스터 도감', `
+  SETTINGS.tags = SETTINGS.hpBars = SETTINGS.dmgNums = true;
+  for (const k in codex.seen) delete codex.seen[k]; for (const k in codex.kills) delete codex.kills[k];
+  // Esc 로 열고 닫기, 열려 있으면 게임이 멈춤
+  reset(); onKey('Escape'); check(!!menu && menu.tab === 'settings', '게임 중 Esc → 설정 창이 열림');
+  const x0 = P.x; keys.KeyD = true; run(1); keys.KeyD = false;
+  check(P.x === x0, '설정 창이 열려 있으면 게임이 멈춤 (D 를 눌러도 안 움직임)');
+  onKey('Tab'); check(menu.tab === 'codex', 'Tab → 몬스터 도감');
+  onKey('Escape'); check(menu === null, 'Esc → 닫힘');
+  newGame(); state = 'title'; onKey('Escape'); check(!!menu, '제목 화면에서도 Esc 로 열림'); closeMenu();
+  reset(); P.x = 2400 + 160; enterAfterlife(); onKey('Escape'); check(!!menu && state === 'afterlife', '사후세계에서도 Esc 로 열림'); closeMenu();
+  // 화면 아래 설정 버튼을 마우스로 눌러도 열림
+  reset(); drawHUD(); mouse.x = GEAR_BTN.x + 10; mouse.y = GEAR_BTN.y + 10; check(onGear(), '화면 아래 「⚙ 설정·도감」 버튼 자리 확인');
+  openMenu(); drawMenu();
+  // 설정 줄을 마우스로 눌러서 끄고 켜기
+  const clickRow = key => { const i = SETTING_ROWS.findIndex(r => r.key === key); drawMenu(); const h = menuHits.find(h => h.w > 400 && Math.abs(h.y - (34 + 80 + i * 70 - 6)) < 2); mouse.x = h.x + 20; mouse.y = h.y + 20; menuClick(); };
+  clickRow('dmgNums'); check(SETTINGS.dmgNums === false, '「피해 숫자」를 누르면 끔');
+  clickRow('hpBars'); check(SETTINGS.hpBars === false, '「몬스터 체력 바」를 누르면 끔');
+  clickRow('tags'); check(SETTINGS.tags === false, '「몬스터 속성 이름표」를 누르면 끔');
+  closeMenu();
+  // 끈 설정이 정말로 안 보이는지
+  reset(); const m = spawnMonster('bat', P.x + 200, 400); m.fade = 1; m.acd = 99; m.hp = m.maxHp = 999;
+  const t0 = texts.length; hurt(m, 5, 0, 0, 0, 'talisman');
+  check(texts.length === t0, '피해 숫자를 끄면 숫자가 안 뜸');
+  let bars = 0; const realFill = ctx.fillRect; ctx.fillRect = (x, y, w, h) => { if (h === 4 && w <= 30) bars++; };
+  drawWorld(); ctx.fillRect = realFill;
+  const barsOff = bars;   // 배경에도 같은 크기 사각형이 하나 있어서, 켰을 때와의 차이로 확인
+  check(lateUI.length === 0, '속성 이름표를 끄면 안 보임');
+  SETTINGS.tags = SETTINGS.hpBars = SETTINGS.dmgNums = true;
+  const t1 = texts.length; hurt(m, 5, 0, 0, 0, 'talisman'); bars = 0; ctx.fillRect = (x, y, w, h) => { if (h === 4 && w <= 30) bars++; }; drawWorld(); ctx.fillRect = realFill;
+  check(bars - barsOff === 2, '체력 바: 끄면 안 보이고 켜면 보임 (바탕 + 채운 칸 = 2)');
+  check(texts.length > t1 && lateUI.length === 1, '다시 켜면 피해 숫자·속성 이름표가 보임');
+  // 도감: 화면에 처음 보이면 기록, 퇴마한 수를 셈
+  reset(); check(!codex.seen.zombie, '처음엔 좀비가 도감에 없음 (???)');
+  const z = spawnMonster('zombie', P.x + 150, P.y); z.fade = 1; z.acd = 99; update(1 / 60);
+  check(codex.seen.zombie === true, '좀비가 화면에 보이면 도감에 기록됨');
+  kill(z); const z2 = spawnMonster('zombie', P.x + 150, P.y); kill(z2);
+  check(codex.kills.zombie === 2, '퇴마한 수를 셈 (좀비 2)');
+  // 도감의 모든 칸을 그려도 오류 없음 (만난 몬스터·안 만난 몬스터·보스)
+  openMenu('codex'); let ok = true;
+  for (let i = 0; i < CODEX_ORDER.length; i++) { menu.sel = i; try { drawMenu(); } catch (e) { ok = false; console.log(e); } }
+  for (const t of CODEX_ORDER) codex.seen[t] = true;
+  for (let i = 0; i < CODEX_ORDER.length; i++) { menu.sel = i; try { drawMenu(); } catch (e) { ok = false; console.log(e); } }
+  check(ok, '도감 10칸 모두 (만나기 전 ??? / 만난 뒤 그림과 설명) 오류 없이 그려짐');
+  onKey('ArrowDown'); check(menu.sel === 0, '↑↓ 로 도감 목록을 움직임 (끝에서 처음으로)');
+  closeMenu();
+  check(CODEX_ORDER.every(t => CODEX_INFO[t] && MON[t].tags), '모든 몬스터에 도감 설명과 속성이 있음');
+`);
+
 test('7. 눈빛: 몬스터는 밝으면 사라지고, 포인트는 언제나 멀리 있는 몬스터 눈빛', `
   let glow = [], icon = 0;
   eyeGlow = (l, rgb, r, al) => glow.push(al);

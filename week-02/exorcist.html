@@ -171,6 +171,7 @@ function toCanvas(e) {
 cv.addEventListener('mousemove', toCanvas);
 cv.addEventListener('mousedown', e => {
   toCanvas(e); initAudio();
+  if (menu) { menuClick(); return; }   // 설정 창이 열려 있으면 창 안의 버튼만
   if (state === 'title') { newGame(); state = 'play'; msg('저승길이 열렸다…', 2.5); return; }
   if (state === 'dead') { respawn(); return; }
   if (state === 'ending') {
@@ -178,6 +179,7 @@ cv.addEventListener('mousedown', e => {
     return;
   }
   if (state !== 'play') return;
+  if (e.button === 0 && onGear()) { openMenu(); return; }
   if (e.button === 0) mouse.down = true;
   if (e.button === 2) castSlot(0);
 });
@@ -213,7 +215,9 @@ function devWarp() {
 function onKey(code) {
   const digit = /^(Digit|Numpad)(\d)$/.exec(code);
   if (digit) { devKeys = (devKeys + digit[2]).slice(-8); if (devKeys.length === 8 && fnv(devKeys) === DEV_HASH) { devKeys = ''; devWarp(); return; } }
+  if (menu) { menuKey(code); return; }   // 설정 창이 열려 있으면 다른 키는 무시
   if (code === 'KeyM') toggleMute();
+  if (code === 'Escape' && (state === 'play' || state === 'title')) { openMenu(); return; }
   if (state === 'ending') {
     if (endingChoicesShown() && (code === 'Digit1' || code === 'Numpad1')) endingChoose(0);
     if (endingChoicesShown() && (code === 'Digit2' || code === 'Numpad2')) endingChoose(1);
@@ -222,6 +226,7 @@ function onKey(code) {
   if (state === 'afterlife') {
     if (talking) { if (code === 'Escape' || code === 'KeyF') closeTalk(); return; }
     if (chat) { if (code === 'Escape') chat = null; else if (code === 'KeyF') nextChat(); return; }
+    if (code === 'Escape') { openMenu(); return; }
     if (code === 'KeyR') startWarp();
     if (code === 'KeyF') {
       const n = nearAfter();
@@ -571,7 +576,7 @@ function hurt(m, base, nx, ny, kb, src = 'skill') {
   if (!m.elite && m.atk && m.atk.phase === 'wind' && kb >= 120) { m.atk = null; m.acd = 0.6; }
   const k = m.elite ? 0.2 : 1;
   m.vx += nx * kb * k; m.vy += ny * kb * k * 0.6;
-  floatText(mcx(m) + (Math.random() * 16 - 8), mcy(m) - 20, Math.round(dmg), dmg < base ? '#9a8fb8' : dmg > base ? '#ffd43b' : '#fff', 12);
+  if (SETTINGS.dmgNums) floatText(mcx(m) + (Math.random() * 16 - 8), mcy(m) - 20, Math.round(dmg), dmg < base ? '#9a8fb8' : dmg > base ? '#ffd43b' : '#fff', 12);
   burst(mcx(m), mcy(m), m.ghost ? '#bde0ff' : '#cfc6b0', 4, 90, m.ghost);
   if (m.hp <= 0) kill(m);
 }
@@ -635,6 +640,7 @@ function drawDrops() {
 function kill(m) {
   if (m.dead) return;
   m.dead = true;
+  codexKill(m.type);
   const d = MON[m.type];
   const got = { ...d.drop };
   for (const [k, ch, n] of d.extra || []) if (Math.random() < ch) got[k] = (got[k] || 0) + n;
@@ -1062,6 +1068,7 @@ function renderShop() {
 function update(dt) {
   time += dt;
   msgs.forEach(m => m.t -= dt); msgs = msgs.filter(m => m.t > 0);
+  if (menu) return;   // 설정 창이 열려 있으면 게임이 멈춘다
   if (state === 'title') {
     P.x += 70 * dt; P.moving = true; stepWalk(70 / P.speed, dt); cam.x = P.x - W * 0.38;
     return;
@@ -1136,6 +1143,7 @@ function update(dt) {
   for (const m of mons) {
     if (m.dead) continue;
     if (m.elite) eliteAlive = true;
+    if (!codex.seen[m.type] && m.fade > 0.5 && m.x > cam.x && m.x < cam.x + W) codexSee(m.type);   // 화면에 처음 보이면 도감에 기록
     if (m.type === 'boss') { updateBoss(m, dt); continue; }
     m.t += dt; m.flash -= dt; m.slow -= dt;
     if (m.fade < 1 && m.vanish == null) m.fade = Math.min(1, m.fade + dt * 0.9);
@@ -1778,6 +1786,179 @@ function drawBoss(m) {
   lights.push({ x, y: hy - 120, r: 120, a: 0.25 * bodyA });
 }
 
+// ===== 설정 창 · 몬스터 도감 (Esc) =====
+// 설정과 도감은 이 컴퓨터의 브라우저에 저장된다 (다시 켜도 그대로). 저장이 안 되는 곳에서도 게임은 그대로 돌아감
+const SETTINGS = { tags: true, hpBars: true, dmgNums: true };
+const codex = { seen: {}, kills: {} };
+function loadSaved() {
+  try { Object.assign(SETTINGS, JSON.parse(localStorage.getItem('exorcist-settings') || '{}')); } catch (e) {}
+  try { const c = JSON.parse(localStorage.getItem('exorcist-codex') || '{}'); Object.assign(codex.seen, c.seen || {}); Object.assign(codex.kills, c.kills || {}); } catch (e) {}
+}
+function saveSettings() { try { localStorage.setItem('exorcist-settings', JSON.stringify(SETTINGS)); } catch (e) {} }
+function saveCodex() { try { localStorage.setItem('exorcist-codex', JSON.stringify(codex)); } catch (e) {} }
+loadSaved();
+function codexSee(type) { if (!codex.seen[type]) { codex.seen[type] = true; saveCodex(); msg(`몬스터 도감에 「${MON[type].name}」 기록됨 (Esc)`, 2, '#c3b5ff'); } }
+function codexKill(type) { codex.seen[type] = true; codex.kills[type] = (codex.kills[type] || 0) + 1; saveCodex(); }
+
+// 도감에 실을 몬스터 순서와 설명
+const CODEX_ORDER = ['zombie', 'skeleton', 'bat', 'wisp', 'scarecrow', 'witch', 'shade', 'wongwi', 'knight', 'boss'];
+const CODEX_INFO = {
+  zombie:    { where: '처음부터', text: '저승길에서 길을 잃고 썩어 버린 몸. 느리지만 꾸준히 따라온다. 두 팔을 머리 위로 들면 곧 내리친다.' },
+  skeleton:  { where: '50m 부터', text: '녹슨 칼을 쥔 해골 병사. 빠르게 찌르지만, 찌른 뒤 숨 고를 때가 빈틈이다.' },
+  bat:       { where: '80m 부터', text: '무리 지어 다니는 흡혈 박쥐. 하나하나는 약하지만 이리저리 날아서 칼로는 맞히기 어렵다. 부적이나 방울이 좋다.' },
+  wisp:      { where: '110m 부터', text: '이름을 잃은 넋. 움츠러들며 붉어지면 몸을 날려 덮친다. 공중에 떠 있어 칼이 잘 안 닿는다.' },
+  scarecrow: { where: '180m 부터', text: '핼로윈 밤에만 깨어나는 호박 머리 허수아비. 큰 낫을 크게 휘두른 뒤에는 한동안 빈틈이 생긴다.' },
+  witch:     { where: '260m 부터', text: '빗자루를 탄 마녀. 멀리서 저주 불덩이를 던지고, 가까이 가면 달아난다. 불덩이는 칼로 벨 수 있다.' },
+  shade:     { where: '300m 부터', text: '빛을 싫어하는 그림자. 느릿느릿하다가 갑자기 달려든다. 영력이 바닥나면 벨 수 없다.' },
+  wongwi:    { where: '420m 즈음 (강한 몬스터)', text: '한을 품은 원혼. 사라졌다 나타나고, 비명으로 몸을 굳게 만든다. 잡으면 「원귀의 머리카락」을 준다.' },
+  knight:    { where: '770m 즈음 (강한 몬스터)', text: '갑옷을 입은 해골 기사. 붉은 점선이 보이면 돌진한다. 은장도와 부적은 갑옷에 막힌다. 잡으면 「해골 기사의 투구」를 준다.' },
+  boss:      { where: '5번째 등불 너머 남문 (최종 보스)', text: '이름을 먹는 악귀. 남문 너머에서 마을의 이름들을 노린다. 세 단계로 싸우며, 어둠 속의 수많은 눈 중 진짜는 하나뿐이다.' },
+};
+const TAG_HELP = {
+  ghost: '영력이 부족하면 피해가 20%만 들어감', body: '영력과 상관없이 맞음', fly: '공중에 떠 있어 은장도·금강저 피해 70%',
+  armed: '공격 범위가 넓음. 공격 뒤 숨 고를 때 맞으면 1.5배', armor: '은장도·부적 피해 50%', ranged: '멀리서 공격하고 가까이 가면 물러남', swarm: '여러 마리가 함께 나옴',
+};
+MON.boss.tags = ['ghost'];
+
+let menu = null;          // 열려 있으면 { tab: 'settings' | 'codex', sel }
+let menuHits = [];        // 이번 화면에서 누를 수 있는 곳
+const SETTING_ROWS = [
+  { key: 'tags', name: '몬스터 속성 이름표', help: '몬스터를 때리면 잠깐 아래에 속성(귀신·나는 적 등)이 보임' },
+  { key: 'hpBars', name: '몬스터 체력 바', help: '몬스터 발밑의 작은 체력 바 (보스·강한 몬스터의 위쪽 큰 바는 항상 보임)' },
+  { key: 'dmgNums', name: '피해 숫자', help: '몬스터를 때릴 때 뜨는 숫자' },
+  { key: 'sound', name: '소리', help: 'M 키와 같음' },
+];
+function openMenu(tab = 'settings') { menu = { tab, sel: Math.max(0, CODEX_ORDER.findIndex(t => codex.seen[t])) }; mouse.down = false; sfx(500, 0.15, 'sine', 0.05, 700); }
+function closeMenu() { menu = null; sfx(400, 0.15, 'sine', 0.05, 300); }
+function toggleSetting(key) {
+  if (key === 'sound') { toggleMute(); return; }
+  SETTINGS[key] = !SETTINGS[key]; saveSettings();
+}
+function menuKey(code) {
+  if (code === 'Escape') return closeMenu();
+  if (code === 'Tab') { menu.tab = menu.tab === 'settings' ? 'codex' : 'settings'; return; }
+  if (menu.tab === 'codex') {
+    if (code === 'ArrowDown' || code === 'KeyS') menu.sel = (menu.sel + 1) % CODEX_ORDER.length;
+    if (code === 'ArrowUp' || code === 'KeyW') menu.sel = (menu.sel + CODEX_ORDER.length - 1) % CODEX_ORDER.length;
+  }
+}
+function menuClick() {
+  for (const h of menuHits) if (mouse.x >= h.x && mouse.x <= h.x + h.w && mouse.y >= h.y && mouse.y <= h.y + h.h) { h.fn(); return; }
+}
+function hit(x, y, w, h, fn) { menuHits.push({ x, y, w, h, fn }); }
+function button(x, y, w, h, text, on, fn) {
+  const hover = mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h;
+  ctx.fillStyle = on ? 'rgba(80,200,190,0.35)' : hover ? 'rgba(80,200,190,0.18)' : 'rgba(255,255,255,0.05)'; ctx.fillRect(x, y, w, h);
+  ctx.strokeStyle = on ? '#7ee8da' : 'rgba(126,232,218,0.35)'; ctx.lineWidth = 1; ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+  ctx.fillStyle = on ? '#e6fffb' : '#a8c8c4'; ctx.font = `bold 14px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText(text, x + w / 2, y + h / 2 + 5);
+  hit(x, y, w, h, fn);
+}
+function wrapText(text, x, y, maxW, lh) {
+  let line = '', yy = y;
+  for (const word of text.split(' ')) {
+    const t = line ? line + ' ' + word : word;
+    if (ctx.measureText(t).width > maxW && line) { ctx.fillText(line, x, yy); line = word; yy += lh; } else line = t;
+  }
+  ctx.fillText(line, x, yy);
+  return yy;
+}
+// 도감 그림: 진짜 몬스터 그림을 크게 그린다
+function drawPortrait(type, cx, by, scale) {
+  const d = MON[type];
+  const m = { type, x: cam.x + cx, y: by, hp: 1, maxHp: 1, r: d.r, ghost: d.ghost, elite: !!d.elite, fade: 1, t: time, seed: 0.37, face: -1, fs: -1, amp: 0.5, hover: d.ghost ? 14 : type === 'bat' ? 46 : type === 'witch' ? 40 : 0, slow: 0, flash: 0, vx: 0, vy: 0, phase: 1, intro: 0, trans: 0, act: null, cs: 'walk', ct: 3 };
+  const g0 = glows; glows = [];
+  ctx.save(); ctx.translate(cx, by); ctx.scale(scale, scale); ctx.translate(-cx, -by);
+  drawMonster(m);
+  ctx.globalCompositeOperation = 'lighter'; glows.forEach(fn => fn()); ctx.globalCompositeOperation = 'source-over';
+  ctx.restore();
+  glows = g0;
+}
+function drawMenu() {
+  menuHits = [];
+  ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(0, 0, W, H);
+  const px = 50, py = 34, pw = W - 100, ph = H - 68;
+  ctx.fillStyle = 'rgba(10,14,22,0.97)'; ctx.fillRect(px, py, pw, ph);
+  ctx.strokeStyle = 'rgba(126,232,218,0.5)'; ctx.lineWidth = 1.5; ctx.strokeRect(px + 0.5, py + 0.5, pw, ph);
+  button(px + 16, py + 14, 120, 32, '⚙ 설정', menu.tab === 'settings', () => { menu.tab = 'settings'; });
+  button(px + 144, py + 14, 140, 32, '📖 몬스터 도감', menu.tab === 'codex', () => { menu.tab = 'codex'; });
+  button(px + pw - 136, py + 14, 120, 32, '닫기 (Esc)', false, closeMenu);
+  ctx.textAlign = 'left'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#6f8f8b';
+  ctx.fillText('게임이 멈춰 있어요 · Tab 으로 탭 바꾸기', px + 300, py + 35);
+  if (menu.tab === 'settings') {
+    SETTING_ROWS.forEach((row, i) => {
+      const y = py + 80 + i * 70, on = row.key === 'sound' ? !muted : SETTINGS[row.key];
+      ctx.textAlign = 'left'; ctx.font = `bold 17px ${FONT}`; ctx.fillStyle = '#e6fffb'; ctx.fillText(row.name, px + 40, y + 22);
+      ctx.font = `13px ${FONT}`; ctx.fillStyle = '#8fb3ae'; ctx.fillText(row.help, px + 40, y + 44);
+      // 켬/끔 스위치
+      const sx = px + pw - 150, sw = 96, sh = 34;
+      ctx.fillStyle = on ? 'rgba(80,200,190,0.55)' : 'rgba(120,120,130,0.35)'; ctx.beginPath(); ctx.arc(sx + sh / 2, y + 16, sh / 2, Math.PI / 2, Math.PI * 1.5); ctx.arc(sx + sw - sh / 2, y + 16, sh / 2, -Math.PI / 2, Math.PI / 2); ctx.fill();
+      ctx.fillStyle = '#f2fffd'; ctx.beginPath(); ctx.arc(on ? sx + sw - sh / 2 : sx + sh / 2, y + 16, sh / 2 - 4, 0, 7); ctx.fill();
+      ctx.textAlign = 'center'; ctx.font = `bold 13px ${FONT}`; ctx.fillStyle = on ? '#063' : '#333';
+      ctx.fillText(on ? '켬' : '끔', on ? sx + sw - sh / 2 : sx + sh / 2, y + 21);
+      hit(px + 30, y - 6, pw - 60, 60, () => toggleSetting(row.key));
+      ctx.strokeStyle = 'rgba(126,232,218,0.12)'; ctx.beginPath(); ctx.moveTo(px + 30, y + 58); ctx.lineTo(px + pw - 30, y + 58); ctx.stroke();
+    });
+    return;
+  }
+  // 몬스터 도감: 왼쪽 목록, 오른쪽 자세히
+  const found = CODEX_ORDER.filter(t => codex.seen[t]).length;
+  ctx.textAlign = 'left'; ctx.font = `13px ${FONT}`; ctx.fillStyle = '#c3b5ff';
+  ctx.fillText(`찾은 몬스터 ${found} / ${CODEX_ORDER.length}`, px + 24, py + 76);
+  CODEX_ORDER.forEach((t, i) => {
+    const y = py + 88 + i * 36, seen = codex.seen[t], sel = menu.sel === i;
+    ctx.fillStyle = sel ? 'rgba(195,181,255,0.18)' : 'rgba(255,255,255,0.03)'; ctx.fillRect(px + 16, y, 230, 30);
+    if (sel) { ctx.strokeStyle = '#c3b5ff'; ctx.strokeRect(px + 16.5, y + 0.5, 230, 30); }
+    ctx.textAlign = 'left'; ctx.font = `${sel ? 'bold ' : ''}14px ${FONT}`; ctx.fillStyle = seen ? '#e8ddff' : '#5c5870';
+    ctx.fillText(seen ? MON[t].name : '???', px + 28, y + 20);
+    ctx.textAlign = 'right'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#8f88aa';
+    if (seen) ctx.fillText(`퇴마 ${codex.kills[t] || 0}`, px + 236, y + 20);
+    hit(px + 16, y, 230, 30, () => { menu.sel = i; });
+  });
+  const t = CODEX_ORDER[menu.sel], d = MON[t], info = CODEX_INFO[t], seen = codex.seen[t];
+  const bx = px + 266, by = py + 64, bw = 230, bh = 300;
+  ctx.fillStyle = 'rgba(30,24,44,0.9)'; ctx.fillRect(bx, by, bw, bh);
+  ctx.strokeStyle = 'rgba(195,181,255,0.3)'; ctx.strokeRect(bx + 0.5, by + 0.5, bw, bh);
+  ctx.save(); ctx.beginPath(); ctx.rect(bx, by, bw, bh); ctx.clip();
+  if (seen) drawPortrait(t, bx + bw / 2, by + bh - 40, t === 'boss' ? 0.95 : d.elite ? 1.9 : 2.4);
+  else { ctx.textAlign = 'center'; ctx.font = `bold 90px ${FONT}`; ctx.fillStyle = 'rgba(195,181,255,0.25)'; ctx.fillText('?', bx + bw / 2, by + bh / 2 + 30); }
+  ctx.restore();
+  const tx = bx + bw + 24, tw = px + pw - tx - 24;
+  ctx.textAlign = 'left';
+  if (!seen) {
+    ctx.font = `bold 22px ${FONT}`; ctx.fillStyle = '#5c5870'; ctx.fillText('???', tx, by + 26);
+    ctx.font = `14px ${FONT}`; ctx.fillStyle = '#8f88aa'; ctx.fillText('아직 만나지 않은 몬스터예요.', tx, by + 60);
+    ctx.fillText(`나오는 곳: ${info.where}`, tx, by + 86);
+    return;
+  }
+  ctx.font = `bold 22px ${FONT}`; ctx.fillStyle = '#e8ddff'; ctx.fillText(d.name, tx, by + 26);
+  ctx.font = `13px ${FONT}`; ctx.fillStyle = '#8f88aa'; ctx.fillText(`나오는 곳: ${info.where}`, tx, by + 50);
+  // 속성과 효과
+  let yy = by + 80;
+  for (const tag of d.tags || []) {
+    ctx.font = `bold 13px ${FONT}`; ctx.fillStyle = TAGS[tag].color; ctx.fillText(TAGS[tag].name, tx, yy);
+    ctx.font = `13px ${FONT}`; ctx.fillStyle = '#c8c0dc'; ctx.fillText(TAG_HELP[tag], tx + 62, yy);
+    yy += 22;
+  }
+  // 숫자
+  yy += 8;
+  ctx.font = `13px ${FONT}`; ctx.fillStyle = '#aab';
+  ctx.fillText(`체력 ${d.hp}   ·   공격력 ${d.dmg}   ·   빠르기 ${d.speed}`, tx, yy);
+  ctx.fillStyle = '#c3b5ff'; ctx.fillText(`퇴마한 수 ${codex.kills[t] || 0}`, tx, yy + 22);
+  // 설명
+  ctx.font = `14px ${FONT}`; ctx.fillStyle = '#e0dcef';
+  wrapText(info.text, tx, yy + 56, tw, 22);
+}
+// 화면 아래 가운데의 설정 버튼 (게임 중)
+const GEAR_BTN = { x: W / 2 - 62, y: H - 46, w: 124, h: 30 };
+function drawGearButton() {
+  const b = GEAR_BTN, hover = mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h;
+  ctx.fillStyle = hover ? 'rgba(80,200,190,0.3)' : 'rgba(0,0,0,0.55)'; ctx.fillRect(b.x, b.y, b.w, b.h);
+  ctx.strokeStyle = '#555'; ctx.lineWidth = 1; ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w, b.h);
+  ctx.textAlign = 'center'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#cfe';
+  ctx.fillText('⚙ 설정·도감 (Esc)', b.x + b.w / 2, b.y + 19);
+}
+const onGear = () => mouse.x >= GEAR_BTN.x && mouse.x <= GEAR_BTN.x + GEAR_BTN.w && mouse.y >= GEAR_BTN.y && mouse.y <= GEAR_BTN.y + GEAR_BTN.h;
+
 // ===== 그리기: 배경 =====
 let lights = [], glows = [], lateUI = [];   // lateUI: 어둠보다 나중에 그리는 글자 (속성 이름표)
 function drawBackground() {
@@ -2198,11 +2379,12 @@ function drawMonster(m) {
   }
   ctx.restore();
   if (m.slow > 0) { ctx.fillStyle = 'rgba(255,120,140,0.7)'; ctx.font = `11px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText('느려짐', x, y + 14); }
-  if (!m.elite && m.hp < m.maxHp) {
+  if (!m.elite && m.hp < m.maxHp && SETTINGS.hpBars) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x - 15, y + 6, 30, 4);
     ctx.fillStyle = m.ghost ? '#9ac5ff' : '#d9c98f'; ctx.fillRect(x - 15, y + 6, 30 * m.hp / m.maxHp, 4);
-    if (time < (m.tagT ?? 0)) lateUI.push(() => drawTags(m, x, y + 21));   // 어둠 위에 그려서 깜깜한 곳에서도 읽힘
   }
+  // 속성 이름표: 맞은 직후 잠깐 (설정에서 끌 수 있음). 어둠 위에 그려서 깜깜한 곳에서도 읽힘
+  if (!m.elite && SETTINGS.tags && time < (m.tagT ?? 0)) lateUI.push(() => drawTags(m, x, y + (SETTINGS.hpBars ? 21 : 14)));
 }
 // 몬스터 속성 이름표 (예: 육체 · 무기)
 function drawTags(m, x, y) {
@@ -2406,7 +2588,7 @@ function drawHUD() {
     if (el === boss) { ctx.fillStyle = 'rgba(255,255,255,0.5)'; for (const r of [0.66, 0.33]) ctx.fillRect(W / 2 - bw / 2 + bw * r - 1, 52, 2, 16); }
     ctx.fillStyle = '#fff'; ctx.font = `bold 11px ${FONT}`;
     ctx.fillText(el === boss ? `무명귀 · 이름을 먹는 악귀 · ${boss.phase}단계` : MON[el.type].name, W / 2, 64);
-    if (el !== boss) drawTags(el, W / 2, 82);
+    if (el !== boss && SETTINGS.tags) drawTags(el, W / 2, 82);
   }
   // 무기 칸
   W_ORDER.forEach((id, i) => {
@@ -2418,6 +2600,7 @@ function drawHUD() {
     ctx.fillStyle = owned[id] ? '#eee' : '#555';
     ctx.fillText(`${i + 1} ${owned[id] ? WEAPONS[id].name + (wlv[id] ? ' +' + wlv[id] : '') : '???'}`, x + 7, y + 19);
   });
+  drawGearButton();
   // 스킬 칸
   ['우클릭', 'Space'].forEach((key, i) => {
     const x = W - 300 + i * 145, y = H - 46, id = slots[i];
@@ -2446,9 +2629,10 @@ function drawTitle() {
   ['WASD 이동  ·  왼쪽 클릭 공격 (마우스 쪽으로)  ·  1~4 무기 바꾸기',
    '우클릭 / Space 스킬  ·  F 세이브 포인트에서 사후세계 가기  ·  M 소리',
    '영력이 부족하면 귀신에게 피해가 거의 안 들어간다 (좀비·해골은 상관없음)',
-   '몬스터마다 속성이 있다: 나는 적은 칼에 덜 맞고, 갑옷은 은장도·부적을 막고, 무기 든 적은 공격 뒤가 빈틈'].forEach((s, i) => ctx.fillText(s, W / 2, 290 + i * 24));
+   '몬스터마다 속성이 있다: 나는 적은 칼에 덜 맞고, 갑옷은 은장도·부적을 막고, 무기 든 적은 공격 뒤가 빈틈',
+   'Esc 설정 · 몬스터 도감'].forEach((s, i) => ctx.fillText(s, W / 2, 280 + i * 24));
   ctx.font = `bold 18px ${FONT}`; ctx.fillStyle = `rgba(255,220,150,${0.6 + 0.4 * Math.sin(time * 3)})`;
-  ctx.fillText('클릭해서 시작', W / 2, 420);
+  ctx.fillText('클릭해서 시작', W / 2, 432);
 }
 function drawDead() {
   ctx.fillStyle = 'rgba(10,0,5,0.65)'; ctx.fillRect(0, 0, W, H);
@@ -3117,12 +3301,12 @@ function drawAfterlife() {
   if (chat) drawChatBox();
   else drawMinimap();
   // 포인트와 조작 안내
-  ctx.fillStyle = 'rgba(4,14,16,0.6)'; ctx.fillRect(10, 10, 560, 24);
+  ctx.fillStyle = 'rgba(4,14,16,0.6)'; ctx.fillRect(10, 10, 630, 24);
   ctx.textAlign = 'right'; ctx.font = `bold 14px ${FONT}`;
   let yy = 26;
   for (const k of ['soul', 'tear', 'grudge']) { ctx.fillStyle = PT_COLORS[k]; ctx.fillText(`${PT_NAMES[k]} ${pts[k]}`, W - 20, yy); yy += 20; }
   ctx.textAlign = 'left'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#7fbfb6';
-  ctx.fillText('WASD 이동 · 누구에게나 다가가서 F 로 말 걸기 · R 이승으로 가는 문 앞으로 바로 이동', 20, 26);
+  ctx.fillText('WASD 이동 · 누구에게나 다가가서 F 로 말 걸기 · R 이승으로 가는 문 앞으로 바로 이동 · Esc 설정', 20, 26);
   // 문 앞으로 이동할 때 잠깐 어두워짐
   if (warp > 0) {
     const k = 1 - Math.abs(warp - WARP_T / 2) / (WARP_T / 2);
@@ -3138,7 +3322,7 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   update(dt);
-  if (state === 'afterlife') { updateAfterlife(dt); drawAfterlife(); }
+  if (state === 'afterlife') { if (!menu) updateAfterlife(dt); drawAfterlife(); }
   else {
     drawWorld();
     if (state === 'play' || state === 'dead') drawHUD();
@@ -3147,6 +3331,7 @@ function loop(now) {
     if (state === 'ending') drawEnding();
     drawMsgs();
   }
+  if (menu) drawMenu();
   requestAnimationFrame(loop);
 }
 requestAnimationFrame(loop);
