@@ -99,7 +99,7 @@ const segQuota = s => 15 + 8 * s;
 const segLeft = s => Math.max(0, segQuota(s) - (segSpawned[s] || 0));
 
 function newGame() {
-  P = { x: 140, y: 390, hp: 100, maxHp: 100, sp: 100, maxSp: 100, spRegen: 9, speed: 210,
+  P = { x: 140, y: 390, hp: 100, maxHp: 100, sp: 100, maxSp: 100, spRegen: 5, speed: 210,   // spRegen: 평소 1초에 차는 영력 (세이브 포인트 안에서는 3배)
         inv: 0, slow: 0, shield: 0, dash: null, kx: 0, ky: 0, walk: 0, moving: false,
         vx: 0, vy: 0, amp: 0, drawA: 0 };   // vx,vy 지금 속도 · amp 걷는 동작 크기(0~1) · drawA 그림에서 보는 방향(천천히 돌아감)
   pts = { soul: 0, tear: 0, grudge: 0 };
@@ -172,7 +172,7 @@ function devWarp() {
   uniques.hair = uniques.helm = true;
   for (const id of ['light', 'barrier', 'scream', 'charge']) learned[id] = true;
   slots[0] = 'light'; slots[1] = 'scream';
-  up.hp = up.sp = 5; P.maxHp = 200; P.maxSp = 200; P.spRegen = 19; P.hp = P.maxHp; P.sp = P.maxSp;
+  up.hp = up.sp = 5; P.maxHp = 200; P.maxSp = 200; P.spRegen = 15; P.hp = P.maxHp; P.sp = P.maxSp;
   // 5번째 등불 (보스 바로 앞 세이브 포인트)
   mons = []; shots = []; drops = []; effects = [];
   boss = null; bshots = []; bhands = []; bdecoys = []; bflee = []; bossEaten = 0;

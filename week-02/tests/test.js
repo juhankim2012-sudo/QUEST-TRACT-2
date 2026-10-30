@@ -245,6 +245,13 @@ test('8. 세이브 포인트 체력: 비어 있는 체력의 2/3 만, 한 번만
   check(P.hp === 70, '다음 세이브 포인트: 10/100 → 비어 있는 90 의 2/3 인 60 → 70 (결과 ' + P.hp + ')');
 `);
 
+test('8-2. 영력 충전 속도: 평소 1초에 5, 세이브 포인트 안에서는 3배', `
+  reset(); P.sp = 0; run(1);
+  check(Math.abs(P.sp - 5) < 0.2, '평소: 1초 동안 영력 ' + P.sp.toFixed(1) + ' 참 (0 → 100 까지 20초)');
+  reset(); P.x = 2400 + 160; cam.x = P.x - W * 0.38; P.sp = 0; run(1);
+  check(Math.abs(P.sp - 15) < 0.4, '세이브 포인트 안: 1초 동안 영력 ' + P.sp.toFixed(1) + ' 참');
+`);
+
 test('9. 몬스터는 구간마다 정해진 수만큼만 나옴', `
   for (const s of [0, 1, 3]) {
     reset(); spawnT = 0; P.x = s * SAVE_GAP + SAVE_W + 400; cam.x = P.x - W * 0.38;
