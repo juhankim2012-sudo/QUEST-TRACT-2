@@ -227,6 +227,38 @@ test('6-2. 생기: 포인트 점수는 그대로, 체력만 조금 회복', `
   check(drops.some(x => x.type === 'life' && x.amt === LIFE_BIG), '강한 몬스터는 항상 생기(+15)를 떨어뜨림');
 `);
 
+test('6-3. 몬스터 속성과 새 핼로윈 몬스터', `
+  const lost = (type, src, setup) => { reset(); const m = spawnMonster(type, P.x + 300, P.y); m.fade = 1; m.hp = m.maxHp = 999; if (setup) setup(m); hurt(m, 10, 0, 0, 0, src); return +(999 - m.hp).toFixed(1); };
+  check(lost('bat', 'dagger') === 7 && lost('bat', 'talisman') === 10 && lost('witch', 'vajra') === 7, '나는 적: 은장도·금강저는 70%, 부적은 그대로 (박쥐 은장도 ' + lost('bat', 'dagger') + ', 부적 ' + lost('bat', 'talisman') + ')');
+  check(lost('knight', 'dagger') === 5 && lost('knight', 'talisman') === 5 && lost('knight', 'vajra') === 10 && lost('knight', 'bell') === 10, '갑옷: 은장도·부적은 50%, 금강저·방울은 그대로');
+  check(lost('scarecrow', 'vajra', m => { m.atk = { phase: 'rec', t: 0.3 }; }) === 15 && lost('scarecrow', 'vajra') === 10, '무기 든 적: 공격 뒤 숨 고를 때 맞으면 1.5배 (빈틈)');
+  check(lost('zombie', 'dagger') === 10 && lost('skeleton', 'skill') === 10, '속성 효과가 없는 경우는 그대로');
+  check(['zombie', 'skeleton', 'wisp', 'shade', 'wongwi', 'knight', 'scarecrow', 'bat', 'witch'].every(t => MON[t].tags && MON[t].tags.length), '모든 몬스터에 속성이 있음');
+  // 무리: 박쥐는 여러 마리가 같이 나온다
+  reset(); spawnT = 0; const real = pickType; pickType = () => 'bat'; P.x = 3200; cam.x = P.x - W * 0.38; trySpawn(); pickType = real;   // 근처에 세이브 지역이 없는 곳
+  check(mons.filter(m => m.type === 'bat').length >= 3, '무리: 박쥐 ' + mons.length + '마리가 한꺼번에 나옴');
+  // 박쥐와 마녀는 높이 떠 있다
+  reset(); const bt = spawnMonster('bat', P.x + 400, P.y); const wt = spawnMonster('witch', P.x + 120, P.y); bt.fade = wt.fade = 1; wt.acd = 99;
+  run(3);
+  check(bt.hover > 35 && wt.hover > 30, '박쥐와 마녀는 공중에 떠 있음');
+  check(Math.hypot(wt.x - P.x, wt.y - P.y) > 220, '마녀는 가까이 있으면 물러남 (120 → ' + Math.round(Math.hypot(wt.x - P.x, wt.y - P.y)) + ')');
+  // 마녀의 저주 불덩이: 맞으면 아프고, 베면 없어짐
+  reset(); const w2 = spawnMonster('witch', P.x + 330, P.y); w2.fade = 1; w2.acd = 0; P.inv = 0;
+  let fired = false, hurtBy = false; const hp0 = P.hp;
+  for (let i = 0; i < 180; i++) { update(1 / 60); if (bshots.some(s => s.kind === 'fire')) fired = true; if (P.hp < hp0) { hurtBy = true; break; } }
+  check(fired && hurtBy, '마녀가 저주 불덩이를 던지고, 맞으면 체력이 줄어듦');
+  reset(); bshots = [{ x: P.x + 40, y: P.y - 28, vx: 0, vy: 0, t: 3, kind: 'fire', dmg: 10 }]; P.atkCd = 0; weapon = 'dagger'; mouse.x = P.x + 40 - cam.x; mouse.y = P.y - 28; attack(); update(1 / 60);
+  check(bshots.length === 0, '저주 불덩이는 칼로 베어 없앨 수 있음');
+  // 속성 이름표: 맞은 뒤 잠깐만 보인다 (무리가 몰려도 글자가 겹쳐 지저분하지 않게)
+  reset(); const tm = spawnMonster('bat', P.x + 200, 400); tm.fade = 1; tm.acd = 99;
+  const shown = () => { drawWorld(); return lateUI.length > 0; };
+  const tg0 = shown(); hurt(tm, 1, 0, 0, 0, 'talisman'); const tg1 = shown(); run(3); const tg2 = shown();
+  check(!tg0 && tg1 && !tg2, '속성 이름표는 맞은 직후 보이고 3초 뒤 사라짐 (' + tg0 + ' → ' + tg1 + ' → ' + tg2 + ')');
+  // 새 몬스터가 거리에 따라 나온다
+  const appear = x => { reset(); P.x = x; const set = new Set(); for (let i = 0; i < 400; i++) set.add(pickType()); return set; };
+  check(!appear(600).has('bat') && appear(1000).has('bat') && !appear(1700).has('scarecrow') && appear(2000).has('scarecrow') && !appear(2500).has('witch') && appear(2800).has('witch'), '박쥐 80m · 허수아비 180m · 마녀 260m 부터 나옴');
+`);
+
 test('7. 눈빛: 몬스터는 밝으면 사라지고, 포인트는 언제나 멀리 있는 몬스터 눈빛', `
   let glow = [], icon = 0;
   eyeGlow = (l, rgb, r, al) => glow.push(al);
@@ -432,15 +464,15 @@ test('13. 몬스터 소리 (가짜 스피커로 확인)', `
     if (made < 2) bad.push(type + ':' + act + ' (소리가 안 만들어짐)');
     all++;
   }
-  check(bad.length === 0, '몬스터 7종의 소리 ' + all + '가지가 모두 오류 없이 만들어짐' + (bad.length ? ' — ' + bad.join(', ') : ''));
-  for (const type of ['zombie', 'skeleton', 'wisp', 'shade', 'wongwi', 'knight']) check(['idle', 'hit', 'hurt', 'die'].every(a => MON_SOUNDS[type][a] || (type === 'knight' && a === 'idle')), MON_SOUNDS[type] ? MON[type].name + ': 평소·공격·맞음·퇴마 소리가 다 있음' : type);
+  check(bad.length === 0, '몬스터 10종의 소리 ' + all + '가지가 모두 오류 없이 만들어짐' + (bad.length ? ' — ' + bad.join(', ') : ''));
+  for (const type of ['zombie', 'skeleton', 'wisp', 'shade', 'wongwi', 'knight', 'scarecrow', 'bat', 'witch']) check(['idle', 'hit', 'hurt', 'die'].every(a => MON_SOUNDS[type][a] || (type === 'knight' && a === 'idle')), MON_SOUNDS[type] ? MON[type].name + ': 평소·공격·맞음·퇴마 소리가 다 있음' : type);
   voiceEnds.length = 0; made = 0; monSound('zombie', 'idle', P.x + 2000);
   check(made === 0, '아주 멀리 있는 몬스터 소리는 안 들림');
   voiceEnds.length = 0; muted = true; made = 0; monSound('zombie', 'idle', P.x + 10); muted = false;
   check(made === 0, 'M 으로 소리를 끄면 안 들림');
   // 실제로 싸울 때 행동마다 소리가 나는지
   const heard = type => soundLog.filter(s => s.startsWith(type + ':')).map(s => s.split(':')[1]);
-  for (const type of ['zombie', 'skeleton', 'wisp', 'shade', 'wongwi', 'knight']) {
+  for (const type of ['zombie', 'skeleton', 'wisp', 'shade', 'wongwi', 'knight', 'scarecrow', 'bat', 'witch']) {
     reset(); soundLog.length = 0; voiceEnds.length = 0;
     const m = spawnMonster(type, P.x + 450, P.y); m.fade = 1; m.acd = 0; m.sndT = 0.1;   // 멀리서 다가오게 (다가오는 동안 평소 소리)
     for (let i = 0; i < 60 * 15 && !(heard(type).includes('hit') && i > 60 * 3); i++) { update(1 / 60); P.hp = P.maxHp; voiceEnds.length = 0; if (m.type === 'wongwi') m.tp = 99; }

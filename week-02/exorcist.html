@@ -74,7 +74,33 @@ const MON = {
   shade:    { name: '그림자 귀신', hp: 38,  speed: 90, dmg: 12, r: 18, ghost: true,  drop: { soul: 6, tear: 1 }, extra: [['grudge', 0.15, 1]] },
   wongwi:   { name: '원귀',       hp: 300, speed: 58, dmg: 16, r: 24, ghost: true,  elite: true, drop: { soul: 40, tear: 6, grudge: 4 }, unique: 'hair' },
   knight:   { name: '해골 기사',   hp: 380, speed: 50, dmg: 20, r: 26, ghost: false, elite: true, drop: { soul: 50, tear: 4, grudge: 5 }, unique: 'helm' },
+  // 핼로윈 몬스터
+  scarecrow: { name: '호박 허수아비', hp: 45, speed: 50, dmg: 12, r: 20, ghost: false, drop: { soul: 4 }, extra: [['grudge', 0.1, 1]] },
+  bat:       { name: '흡혈 박쥐',     hp: 12, speed: 120, dmg: 5, r: 12, ghost: false, drop: { soul: 1 } },
+  witch:     { name: '마녀',         hp: 34, speed: 70, dmg: 10, r: 16, ghost: false, drop: { soul: 4 }, extra: [['tear', 0.4, 1]] },
 };
+// 몬스터 속성: 싸우는 방법이 달라진다
+//   ghost 귀신   : 영력이 부족하면 피해 20%
+//   body  육체   : 영력과 상관없이 맞음
+//   fly   나는 적 : 공중에 떠 있어서 근접 무기(은장도·금강저) 피해 70%
+//   armed 무기   : 공격 범위가 넓음. 대신 공격 뒤 숨 고를 때 맞으면 피해 1.5배 (빈틈)
+//   armor 갑옷   : 은장도·부적 피해 50%
+//   ranged 원거리: 멀리서 공격하고, 가까이 가면 물러남
+//   swarm 무리   : 여러 마리가 함께 나옴
+const TAGS = {
+  ghost: { name: '귀신', color: '#b197fc' }, body: { name: '육체', color: '#c9b48a' }, fly: { name: '나는 적', color: '#74c0fc' },
+  armed: { name: '무기', color: '#ffa94d' }, armor: { name: '갑옷', color: '#ced4da' }, ranged: { name: '원거리', color: '#69db7c' }, swarm: { name: '무리', color: '#ff8787' },
+};
+MON.zombie.tags = ['body'];
+MON.skeleton.tags = ['body', 'armed'];
+MON.wisp.tags = ['ghost', 'fly'];
+MON.shade.tags = ['ghost'];
+MON.wongwi.tags = ['ghost'];
+MON.knight.tags = ['body', 'armed', 'armor'];
+MON.scarecrow.tags = ['body', 'armed'];
+MON.bat.tags = ['body', 'fly', 'swarm'];
+MON.witch.tags = ['body', 'fly', 'ranged'];
+const hasTag = (m, t) => (MON[m.type].tags || []).includes(t);
 // 공격 동작: trigger 이 거리 안에 들어오면 준비 시작, reach 맞는 거리, wind 준비 시간, hit 공격 시간, rec 숨 고르기, cd 다음 공격까지
 MON.zombie.atk   = { kind: 'swipe', trigger: 46,  reach: 60,  wind: 0.55, hit: 0.15, rec: 0.45, cd: 0.9 };
 MON.skeleton.atk = { kind: 'stab',  trigger: 52,  reach: 68,  wind: 0.35, hit: 0.12, rec: 0.35, cd: 0.8, lunge: 16 };
@@ -82,6 +108,9 @@ MON.wisp.atk     = { kind: 'lunge', trigger: 120, wind: 0.5,  hit: 0.3,  rec: 0.
 MON.shade.atk    = { kind: 'swipe', trigger: 76,  reach: 90,  wind: 0.4,  hit: 0.15, rec: 0.4,  cd: 0.9 };
 MON.wongwi.atk   = { kind: 'swipe', trigger: 72,  reach: 88,  wind: 0.6,  hit: 0.18, rec: 0.5,  cd: 1.0 };
 MON.knight.atk   = { kind: 'swipe', trigger: 82,  reach: 104, wind: 0.6,  hit: 0.2,  rec: 0.6,  cd: 1.0 };
+MON.scarecrow.atk = { kind: 'swipe', trigger: 74, reach: 104, wind: 0.6,  hit: 0.18, rec: 0.55, cd: 0.9 };    // 큰 낫
+MON.bat.atk       = { kind: 'lunge', trigger: 150, wind: 0.35, hit: 0.28, rec: 0.6,  cd: 1.0, lungeSpd: 480 };
+MON.witch.atk     = { kind: 'shoot', trigger: 440, wind: 0.8,  hit: 0.1,  rec: 0.6,  cd: 1.7 };            // 저주 불덩이
 const ELITE_ORDER = ['wongwi', 'knight'];
 
 // ===== 게임 상태 =====
@@ -348,6 +377,27 @@ const MON_SOUNDS = {
     hurt: o => clank(o, 0.07),
     die: o => { for (let i = 0; i < 6; i++) clank(o, 0.09, i * 0.09 + Math.random() * 0.05); tone(o, { f: 80, f2: 30, dur: 1.0, vol: 0.15 }); },
   },
+  scarecrow: {
+    idle: o => { tone(o, { type: 'triangle', f: 310, f2: 250, dur: 0.6, vol: 0.05, vib: 14, vibF: 13, filt: 900, att: 0.1 }); hiss(o, { f: 1800, q: 1, dur: 0.4, vol: 0.03, delay: 0.3 }); },   // 삐걱이는 나무 · 지푸라기
+    wind: o => { hiss(o, { f: 2500, f2: 5000, q: 6, dur: 0.6, vol: 0.06, att: 0.4 }); tone(o, { type: 'triangle', f: 2200, f2: 3000, dur: 0.6, vol: 0.025, att: 0.4 }); },   // 낫 가는 소리
+    hit: o => { hiss(o, { f: 700, f2: 2400, q: 1.5, dur: 0.22, vol: 0.14, att: 0.01 }); tone(o, { f: 140, f2: 60, dur: 0.15, vol: 0.1, delay: 0.1 }); },
+    hurt: o => hiss(o, { f: 2200, q: 1, dur: 0.15, vol: 0.07 }),
+    die: o => { tone(o, { f: 180, f2: 60, dur: 0.25, vol: 0.14, att: 0.005 }); hiss(o, { ft: 'lowpass', f: 1500, f2: 300, dur: 0.6, vol: 0.08 }); tone(o, { type: 'triangle', f: 320, f2: 120, dur: 0.9, vol: 0.04, vib: 10, vibF: 9, delay: 0.15 }); },   // 호박이 깨지는 소리
+  },
+  bat: {
+    idle: o => { for (let i = 0; i < 3; i++) tone(o, { type: 'sine', f: 3200 + Math.random() * 800, f2: 4200, dur: 0.06, vol: 0.03, att: 0.005, delay: i * 0.11 }); },   // 찍찍
+    wind: o => { for (let i = 0; i < 6; i++) hiss(o, { f: 700, q: 1.5, dur: 0.05, vol: 0.06, att: 0.005, delay: i * 0.05 }); },   // 날개 퍼덕
+    hit: o => tone(o, { type: 'sawtooth', f: 2600, f2: 4200, dur: 0.18, vol: 0.04, filt: 6000, att: 0.01 }),   // 날카로운 울음
+    hurt: o => tone(o, { f: 3800, f2: 2800, dur: 0.08, vol: 0.04 }),
+    die: o => { tone(o, { f: 4000, f2: 1500, dur: 0.3, vol: 0.05 }); hiss(o, { f: 600, q: 1, dur: 0.2, vol: 0.04, delay: 0.1 }); },
+  },
+  witch: {
+    idle: o => { for (let i = 0; i < 4; i++) tone(o, { type: 'sawtooth', f: 720 - i * 40, f2: 640 - i * 40, dur: 0.09, vol: 0.035, filt: 2200, att: 0.01, delay: i * 0.13 }); },   // 히히히히 (웃음)
+    wind: o => { tone(o, { f: 300, f2: 900, dur: 0.8, vol: 0.05, vib: 20, vibF: 9, att: 0.6 }); hiss(o, { f: 1500, f2: 3500, q: 4, dur: 0.8, vol: 0.03, att: 0.6 }); },   // 주문을 모으는 소리
+    hit: o => { hiss(o, { f: 600, f2: 1800, q: 1.2, dur: 0.35, vol: 0.1, att: 0.02 }); tone(o, { type: 'sawtooth', f: 200, f2: 120, dur: 0.3, vol: 0.04, filt: 800 }); },   // 불덩이 발사
+    hurt: o => tone(o, { type: 'sawtooth', f: 900, f2: 1300, dur: 0.15, vol: 0.04, filt: 2500 }),
+    die: o => { for (let i = 0; i < 6; i++) tone(o, { type: 'sawtooth', f: 800 - i * 70, f2: 700 - i * 70, dur: 0.1, vol: 0.04 * (1 - i / 7), filt: 2200, delay: i * 0.12 }); tone(o, { type: 'sawtooth', f: 1200, f2: 300, dur: 1.0, vol: 0.04, filt: 2500, delay: 0.75 }); },
+  },
   boss: {
     idle: o => { for (let i = 0; i < 3; i++) hiss(o, { f: 900 + Math.random() * 300, f2: 700, q: 6, dur: 0.4, vol: 0.05, att: 0.15, delay: i * 0.5 }); tone(o, { type: 'sawtooth', f: 55, dur: 2, vol: 0.05, filt: 150, att: 0.5 }); },
     sweepWind: o => { hiss(o, { f: 200, f2: 900, q: 2, dur: 0.9, vol: 0.1, att: 0.85 }); tone(o, { type: 'sawtooth', f: 50, f2: 70, dur: 0.9, vol: 0.08, filt: 200, att: 0.6 }); },
@@ -427,6 +477,9 @@ function pickType() {
   if (d > 500) pool.push(['skeleton', 4]);
   if (d > 1100) pool.push(['wisp', 4]);
   if (d > 3000) pool.push(['shade', 2 + Math.min(4, d / 3000)]);
+  if (d > 800) pool.push(['bat', 2]);
+  if (d > 1800) pool.push(['scarecrow', 3]);
+  if (d > 2600) pool.push(['witch', 2]);
   let sum = pool.reduce((s, p) => s + p[1], 0), r = Math.random() * sum;
   for (const [t, w] of pool) { r -= w; if (r <= 0) return t; }
   return 'zombie';
@@ -437,6 +490,7 @@ function trySpawn() {
   if (segLeft(s) <= 0) return;   // 이 구간 몬스터는 다 나왔다
   const count = Math.min(segLeft(s), 1 + Math.floor(Math.random() * (1 + P.x / 5000)));
   for (let k = 0; k < count; k++) {
+    if (segLeft(s) <= 0) break;   // 무리가 남은 수를 다 쓰면 그만
     const type = pickType();
     let x, y = ROAD_TOP + 20 + Math.random() * (ROAD_BOT - ROAD_TOP - 20);
     if (MON[type].ghost && Math.random() < 0.4) {
@@ -447,8 +501,12 @@ function trySpawn() {
       x = Math.random() < 0.78 ? cam.x + W + 40 + Math.random() * 80 : cam.x - 40;
     }
     if (x < 300 || inZoneWide(x, 40)) continue;
-    spawnMonster(type, x, y);
-    segSpawned[s] = (segSpawned[s] || 0) + 1;
+    // 무리: 박쥐는 3~4마리가 함께 온다 (이 구간에 남은 수만큼만)
+    const group = hasTag({ type }, 'swarm') ? Math.min(segLeft(s), 3 + Math.floor(Math.random() * 2)) : 1;
+    for (let g = 0; g < group; g++) {
+      spawnMonster(type, x + g * 26 * (x > P.x ? 1 : -1), clamp(y + (g % 2 ? 30 : -30) * Math.ceil(g / 2), ROAD_TOP + 20, ROAD_BOT));
+      segSpawned[s] = (segSpawned[s] || 0) + 1;
+    }
   }
 }
 function spawnElite() {
@@ -474,7 +532,7 @@ function attack() {
     for (const m of mons) {
       if (m.dead || m.fade < 0.3) continue;
       const mx = mcx(m), my = mcy(m), d = Math.hypot(mx - x, my - y);
-      if (d < w.range + m.r && angDiff(Math.atan2(my - y, mx - x), a) <= w.arc / 2) hurt(m, dmg, Math.cos(a), Math.sin(a), w.kb);
+      if (d < w.range + m.r && angDiff(Math.atan2(my - y, mx - x), a) <= w.arc / 2) hurt(m, dmg, Math.cos(a), Math.sin(a), w.kb, weapon);
     }
     // 무명귀가 날린 이름 글자는 베어서 없앨 수 있다
     for (const s of bshots) if (Math.hypot(s.x - x, s.y - y) < w.range + 10 && angDiff(Math.atan2(s.y - y, s.x - x), a) <= w.arc / 2) { s.t = 0; burst(s.x, s.y, '#ffd6ec', 5, 80, true); }
@@ -487,27 +545,33 @@ function attack() {
     for (const m of mons) {
       if (m.dead || m.fade < 0.3) continue;
       const mx = mcx(m), my = mcy(m), d = Math.hypot(mx - x, my - y);
-      if (d < w.range + m.r) hurt(m, dmg, (mx - x) / (d || 1), (my - y) / (d || 1), w.kb);
+      if (d < w.range + m.r) hurt(m, dmg, (mx - x) / (d || 1), (my - y) / (d || 1), w.kb, weapon);
     }
     for (const s of bshots) if (Math.hypot(s.x - x, s.y - y) < w.range + 10) { s.t = 0; burst(s.x, s.y, '#ffd6ec', 5, 80, true); }
     sfx(1200, 0.4, 'sine', 0.08, 900);
   }
 }
 let weakHintT = 0;
-function hurt(m, base, nx, ny, kb) {
+function hurt(m, base, nx, ny, kb, src = 'skill') {
   if (m.type === 'boss' && (m.intro > 0 || m.trans > 0)) return;   // 보스 등장·단계가 바뀌는 연출 중에는 안 맞음
   let dmg = base;
   if (m.ghost && ghostWeak()) {
     dmg *= 0.2;
     if (weakHintT <= 0) { floatText(mcx(m), mcy(m) - 30, '영력 부족!', '#b197fc', 13); weakHintT = 1.2; }
   }
-  m.hp -= dmg; m.flash = 0.12;
+  // 속성: 나는 적은 근접 무기에 덜 맞고, 갑옷은 약한 무기를 막고, 무기 든 적은 공격 뒤 빈틈에 더 아프게 맞는다
+  let note = null;
+  if (hasTag(m, 'fly') && (src === 'dagger' || src === 'vajra')) { dmg *= 0.7; note = ['공중!', '#74c0fc']; }
+  if (hasTag(m, 'armor') && (src === 'dagger' || src === 'talisman')) { dmg *= 0.5; note = ['갑옷!', '#ced4da']; }
+  if (hasTag(m, 'armed') && m.atk && m.atk.phase === 'rec') { dmg *= 1.5; note = ['빈틈!', '#ffd43b']; }
+  if (note && (m.noteT ?? 0) < time) { m.noteT = time + 0.8; floatText(mcx(m), mcy(m) - 38, note[0], note[1], 13); }
+  m.hp -= dmg; m.flash = 0.12; m.tagT = time + 2.5;   // 맞은 뒤 잠깐 속성 이름표를 보여 준다
   if ((m.hsT ?? 0) < time) { m.hsT = time + (m.type === 'boss' ? 0.35 : 0.18); monSound(m.type, 'hurt', m.x); }
   // 세게 맞으면 작은 몬스터는 공격 준비가 끊긴다
   if (!m.elite && m.atk && m.atk.phase === 'wind' && kb >= 120) { m.atk = null; m.acd = 0.6; }
   const k = m.elite ? 0.2 : 1;
   m.vx += nx * kb * k; m.vy += ny * kb * k * 0.6;
-  floatText(mcx(m) + (Math.random() * 16 - 8), mcy(m) - 20, Math.round(dmg), dmg < base ? '#9a8fb8' : '#fff', 12);
+  floatText(mcx(m) + (Math.random() * 16 - 8), mcy(m) - 20, Math.round(dmg), dmg < base ? '#9a8fb8' : dmg > base ? '#ffd43b' : '#fff', 12);
   burst(mcx(m), mcy(m), m.ghost ? '#bde0ff' : '#cfc6b0', 4, 90, m.ghost);
   if (m.hp <= 0) kill(m);
 }
@@ -609,7 +673,7 @@ function castSlot(i) {
   if (id === 'light') {
     const len = 620, bx = x + Math.cos(a) * len, by = y + Math.sin(a) * len;
     effects.push({ kind: 'beam', x, y, ang: a, len, t: 0.35, max: 0.35 });
-    for (const m of mons) if (!m.dead && m.fade > 0.3 && segDist(mcx(m), mcy(m), x, y, bx, by) < m.r + 14) hurt(m, 45, Math.cos(a), Math.sin(a), 120);
+    for (const m of mons) if (!m.dead && m.fade > 0.3 && segDist(mcx(m), mcy(m), x, y, bx, by) < m.r + 14) hurt(m, 45, Math.cos(a), Math.sin(a), 120, 'skill');
     sfx(1500, 0.5, 'sine', 0.1, 600);
   } else if (id === 'barrier') {
     P.shield = 3; sfx(500, 0.6, 'sine', 0.1, 1000);
@@ -618,7 +682,7 @@ function castSlot(i) {
     for (const m of mons) {
       if (m.dead || m.fade < 0.3) continue;
       const d = Math.hypot(mcx(m) - x, mcy(m) - y);
-      if (d < 210 + m.r) { m.slow = 2.5; hurt(m, 32, (mcx(m) - x) / (d || 1), (mcy(m) - y) / (d || 1), 80); }
+      if (d < 210 + m.r) { m.slow = 2.5; hurt(m, 32, (mcx(m) - x) / (d || 1), (mcy(m) - y) / (d || 1), 80, 'skill'); }
     }
     sfx(300, 0.7, 'sawtooth', 0.06, 1400);
   } else if (id === 'names') {
@@ -1012,7 +1076,7 @@ function update(dt) {
   if (P.dash) {
     P.x += P.dash.vx * dt; P.y += P.dash.vy * dt; P.dash.t -= dt;
     for (const m of mons) if (!m.dead && !P.dash.hit.has(m) && Math.hypot(mcx(m) - pcx(), mcy(m) - pcy()) < m.r + 30) {
-      P.dash.hit.add(m); hurt(m, 38, P.dash.vx / 900, P.dash.vy / 900, 150);
+      P.dash.hit.add(m); hurt(m, 38, P.dash.vx / 900, P.dash.vy / 900, 150, 'skill');
     }
     effects.push({ kind: 'after', x: P.x, y: P.y, t: 0.25, max: 0.25 });
     if (P.dash.t <= 0) P.dash = null;
@@ -1110,6 +1174,15 @@ function update(dt) {
       vx = wdx / wd * ws; vy = wdy / wd * ws;
     } else m.wseg = null;
     if (m.type === 'wisp' && !m.atk) vy += Math.sin(m.t * 3 + m.seed * 6) * 50;
+    if (m.type === 'bat') { m.hover = 46 + Math.sin(m.t * 9 + m.seed * 9) * 6; if (!m.atk) { vx += Math.sin(m.t * 7 + m.seed * 9) * 90; vy += Math.cos(m.t * 5 + m.seed * 5) * 70; } }
+    if (m.type === 'witch') {
+      m.hover = 40 + Math.sin(m.t * 1.7 + m.seed * 9) * 8;
+      if (!z && !m.atk) {
+        // 너무 가까우면 물러나고, 너무 멀면 다가오고, 그 사이에서는 위아래로 떠다닌다
+        const want = d < 260 ? -1 : d > 380 ? 1 : 0;
+        vx = dx / d * sp * want; vy = want ? dy / d * sp * want : Math.sin(m.t * 1.3 + m.seed * 7) * sp * 0.6;
+      }
+    }
     if (z) { /* 떠도는 중에는 특수 행동 없음 */ }
     else if (m.type === 'shade') {
       m.st = (m.st ?? 1) - dt;
@@ -1156,7 +1229,15 @@ function update(dt) {
       if (k.phase === 'wind') {
         if (k.t <= 0) { k.phase = 'hit'; k.t = A.hit; if (A.kind === 'lunge') monSound(m.type, 'hit', m.x); }
       } else if (k.phase === 'hit') {
-        if (A.kind === 'lunge') {
+        if (A.kind === 'shoot') {
+          // 저주 불덩이를 나를 향해 던진다 (칼로 베어 없앨 수 있음)
+          if (!k.done) {
+            k.done = true;
+            const sx0 = m.x + m.face * 14, sy0 = m.y - m.hover - 30, an = Math.atan2(P.y - 28 - sy0, P.x - sx0);
+            bshots.push({ x: sx0, y: sy0, vx: Math.cos(an) * 240, vy: Math.sin(an) * 240, t: 3, kind: 'fire', dmg: m.dmg });
+            monSound(m.type, 'hit', m.x);
+          }
+        } else if (A.kind === 'lunge') {
           // 몸으로 날아들기: 날아가는 동안 닿으면 피해
           vx = Math.cos(k.ang) * A.lungeSpd; vy = Math.sin(k.ang) * A.lungeSpd;
           if (!k.done && d < m.r + 18) { k.done = true; damagePlayer(m.dmg, m); }
@@ -1215,7 +1296,7 @@ function update(dt) {
     for (const m of mons) {
       if (m.dead || s.hit.has(m) || m.fade < 0.3) continue;
       if (Math.hypot(mcx(m) - s.x, mcy(m) - s.y) < m.r + 8) {
-        s.hit.add(m); hurt(m, s.dmg, s.vx / 560, s.vy / 560, 60);
+        s.hit.add(m); hurt(m, s.dmg, s.vx / 560, s.vy / 560, 60, s.ch ? 'skill' : 'talisman');
         if (s.hit.size > s.pierce) { s.t = 0; break; }
       }
     }
@@ -1432,7 +1513,7 @@ function updateBossThings(dt) {
   for (const s of bshots) {
     s.x += s.vx * dt; s.y += s.vy * dt; s.t -= dt;
     if (s.y < ROAD_TOP - 160 || s.y > H + 20) s.t = 0;
-    if (s.t > 0 && Math.hypot(P.x - s.x, P.y - 28 - s.y) < 18) { s.t = 0; damagePlayer(BOSS_DMG.name, { x: s.x, y: s.y }); }
+    if (s.t > 0 && Math.hypot(P.x - s.x, P.y - 28 - s.y) < 18) { s.t = 0; damagePlayer(s.dmg ?? BOSS_DMG.name, { x: s.x, y: s.y }); if (s.kind === 'fire') burst(s.x, s.y, '#8dff6a', 10, 120, true); }
   }
   bshots = bshots.filter(s => s.t > 0);
   for (const h of bhands) {
@@ -1580,6 +1661,16 @@ function drawBossTop() {
   // 날아오는 이름 글자 (어둠 위에 빛나게)
   for (const s of bshots) {
     const x = s.x - cam.x, y = s.y;
+    if (s.kind === 'fire') {
+      // 마녀의 저주 불덩이: 초록 불꽃 속에 작은 호박
+      glows.push(() => {
+        warmGlowPlay(x, y, 26, '120,255,90', 0.55);
+        for (let i = 0; i < 3; i++) warmGlowPlay(x - s.vx * 0.02 * (i + 1), y - s.vy * 0.02 * (i + 1), 12 - i * 3, '160,255,120', 0.3 - i * 0.08);
+        ctx.fillStyle = '#e8862a'; ctx.beginPath(); ctx.ellipse(x, y, 6, 5, 0, 0, 7); ctx.fill();
+      });
+      lights.push({ x, y, r: 60, a: 0.5 });
+      continue;
+    }
     glows.push(() => {
       warmGlowPlay(x, y, 20, '220,120,180', 0.5);
       ctx.font = `bold 18px ${FONT}`; ctx.textAlign = 'center'; ctx.fillStyle = '#ffd6ec'; ctx.fillText(s.ch, x, y + 6);
@@ -1688,7 +1779,7 @@ function drawBoss(m) {
 }
 
 // ===== 그리기: 배경 =====
-let lights = [], glows = [];
+let lights = [], glows = [], lateUI = [];   // lateUI: 어둠보다 나중에 그리는 글자 (속성 이름표)
 function drawBackground() {
   let g = ctx.createLinearGradient(0, 0, 0, 250);
   g.addColorStop(0, '#05030b'); g.addColorStop(1, '#1d1230');
@@ -2039,13 +2130,92 @@ function drawMonster(m) {
       ctx.strokeStyle = `rgba(255,60,60,${0.4 + 0.4 * Math.sin(time * 30)})`; ctx.lineWidth = 2; ctx.setLineDash([8, 8]);
       ctx.beginPath(); ctx.moveTo(x, y - 30); ctx.lineTo(x + Math.cos(m.dir) * 400, y - 30 + Math.sin(m.dir) * 400); ctx.stroke(); ctx.setLineDash([]);
     });
+  } else if (m.type === 'scarecrow') {
+    // 호박 허수아비: 다리 대신 막대 하나로 깡충깡충, 너덜너덜한 외투, 지푸라기, 큰 낫
+    const hop = Math.abs(Math.sin(t * 6 + m.seed * 9)) * 8 * (m.amp ?? 0);
+    const by = y - hop, lean = L(0, -0.25, w) + L(0, 0.35, hk);
+    ctx.strokeStyle = '#5a4430'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(x, by); ctx.lineTo(x, by - 70); ctx.stroke();
+    ctx.save(); ctx.translate(x, by - 40); ctx.rotate(f * lean);
+    // 외투
+    ctx.fillStyle = '#4a3550'; ctx.beginPath(); ctx.moveTo(-14, -26); ctx.lineTo(14, -26); ctx.lineTo(17, 8); ctx.lineTo(10, 4); ctx.lineTo(4, 10); ctx.lineTo(-3, 4); ctx.lineTo(-10, 10); ctx.lineTo(-17, 6); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = 'rgba(200,170,220,0.35)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = '#6b4a3a'; ctx.fillRect(-8, -14, 7, 7); ctx.fillStyle = '#3a5a4a'; ctx.fillRect(4, -6, 6, 6);   // 기운 천 조각
+    // 팔 (가로 막대) 과 지푸라기
+    ctx.strokeStyle = '#5a4430'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-26, -22); ctx.lineTo(26, -22); ctx.stroke();
+    ctx.strokeStyle = '#d8b860'; ctx.lineWidth = 1.5;
+    for (const sx of [-26, 26]) for (let k = -2; k <= 2; k++) { ctx.beginPath(); ctx.moveTo(sx, -22); ctx.lineTo(sx + Math.sign(sx) * 7, -22 + k * 3 + Math.sin(t * 4 + k) * 1.5); ctx.stroke(); }
+    for (let k = -3; k <= 3; k++) { ctx.beginPath(); ctx.moveTo(k * 4, 8); ctx.lineTo(k * 5, 16 + Math.sin(t * 5 + k) * 2); ctx.stroke(); }
+    // 큰 낫: 준비할 땐 뒤로 높이, 공격할 땐 앞으로 크게 휘두름
+    const sc = L(L(-0.4, -2.4, w), 1.6, hk);
+    ctx.save(); ctx.translate(f * 26, -22); ctx.rotate(f * sc);
+    ctx.strokeStyle = '#4a3626'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(0, 14); ctx.lineTo(0, -46); ctx.stroke();
+    ctx.fillStyle = '#b8c0c8'; ctx.beginPath(); ctx.moveTo(0, -46); ctx.quadraticCurveTo(f * 30, -52, f * 38, -30); ctx.quadraticCurveTo(f * 24, -42, 0, -40); ctx.fill();
+    ctx.restore();
+    ctx.restore();
+    // 호박 머리 (속이 빛나는 눈과 입)
+    const hx = x + f * Math.sin(lean) * 30, hy2 = by - 78;
+    ctx.fillStyle = '#c8641e'; ctx.beginPath(); ctx.ellipse(hx - 6, hy2, 9, 11, 0, 0, 7); ctx.ellipse(hx + 6, hy2, 9, 11, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#e07a2a'; ctx.beginPath(); ctx.ellipse(hx, hy2, 10, 12, 0, 0, 7); ctx.fill();
+    ctx.fillStyle = '#3c5a1c'; ctx.fillRect(hx - 1.5, hy2 - 16, 3, 6);
+    ctx.fillStyle = '#2a1206'; ctx.beginPath(); ctx.moveTo(hx - 8, hy2 + 4); ctx.lineTo(hx - 3, hy2 + 7); ctx.lineTo(hx, hy2 + 4); ctx.lineTo(hx + 3, hy2 + 7); ctx.lineTo(hx + 8, hy2 + 4); ctx.lineTo(hx, hy2 + 10); ctx.fill();
+    glows.push(() => { ctx.fillStyle = `rgba(255,170,40,${0.55 * m.fade})`; ctx.beginPath(); ctx.moveTo(hx - 8, hy2 + 4); ctx.lineTo(hx - 3, hy2 + 7); ctx.lineTo(hx, hy2 + 4); ctx.lineTo(hx + 3, hy2 + 7); ctx.lineTo(hx + 8, hy2 + 4); ctx.lineTo(hx, hy2 + 10); ctx.fill(); });
+    eyes(m, [[hx + f * 2 - 4, hy2 - 3], [hx + f * 2 + 4, hy2 - 3]], '255,160,40', 1.8);
+  } else if (m.type === 'bat') {
+    // 흡혈 박쥐: 퍼덕이는 날개, 덮칠 때는 날개를 접고 길게
+    const hy2 = y - m.hover, flap = Math.sin(t * 22 + m.seed * 9);
+    const fold = Math.max(w * 0.6, hk);
+    ctx.save(); ctx.translate(x, hy2); ctx.scale(f, 1);
+    const wingY = L(-10 * flap, 4, fold), wingX = L(20, 10, fold);
+    ctx.fillStyle = '#3a2a40'; ctx.strokeStyle = 'rgba(190,160,210,0.4)'; ctx.lineWidth = 1;
+    for (const s2 of [-1, 1]) {
+      ctx.beginPath(); ctx.moveTo(s2 * 3, -2); ctx.quadraticCurveTo(s2 * wingX * 0.6, wingY - 8, s2 * wingX, wingY);
+      ctx.lineTo(s2 * wingX * 0.75, wingY + 4); ctx.lineTo(s2 * wingX * 0.5, wingY + 1); ctx.lineTo(s2 * wingX * 0.3, wingY + 5); ctx.lineTo(s2 * 3, 3); ctx.closePath(); ctx.fill(); ctx.stroke();
+    }
+    ctx.fillStyle = '#2e2234'; ctx.beginPath(); ctx.ellipse(0, 0, 5, 7, 0, 0, 7); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(-3, -6); ctx.lineTo(-4, -11); ctx.lineTo(-1, -7); ctx.moveTo(3, -6); ctx.lineTo(4, -11); ctx.lineTo(1, -7); ctx.fill();   // 귀
+    ctx.restore();
+    eyes(m, [[x + f * 1.5 - 2, hy2 - 3], [x + f * 1.5 + 2, hy2 - 3]], '255,50,50', 1.1);
+  } else if (m.type === 'witch') {
+    // 마녀: 빗자루를 타고 떠다니며, 손에 초록 불을 모아 던진다
+    const hy2 = y - m.hover, tilt = Math.sin(t * 1.7 + m.seed * 5) * 0.08;
+    ctx.save(); ctx.translate(x, hy2); ctx.rotate(tilt); ctx.scale(f, 1);
+    ctx.strokeStyle = '#6b5236'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-26, 2); ctx.lineTo(24, -2); ctx.stroke();   // 빗자루 자루
+    ctx.strokeStyle = '#b89a58'; ctx.lineWidth = 1.5;
+    for (let k = -3; k <= 3; k++) { ctx.beginPath(); ctx.moveTo(-24, 2); ctx.lineTo(-40, 2 + k * 3 + Math.sin(t * 8 + k) * 1.5); ctx.stroke(); }
+    ctx.fillStyle = '#3a2a48'; ctx.beginPath(); ctx.moveTo(-8, 2); ctx.lineTo(10, 2); ctx.lineTo(6, -26); ctx.lineTo(-4, -26); ctx.closePath(); ctx.fill();   // 옷
+    ctx.strokeStyle = 'rgba(200,170,230,0.4)'; ctx.lineWidth = 1.2; ctx.stroke();
+    ctx.fillStyle = '#9ab878'; ctx.beginPath(); ctx.arc(2, -32, 6.5, 0, 7); ctx.fill();   // 초록빛 얼굴
+    ctx.fillStyle = '#1e1428'; ctx.beginPath(); ctx.ellipse(1, -37, 13, 3, -0.1, 0, 7); ctx.fill();   // 모자 챙
+    ctx.beginPath(); ctx.moveTo(-6, -38); ctx.lineTo(8, -38); ctx.quadraticCurveTo(4, -50, -6, -60); ctx.closePath(); ctx.fill();   // 뾰족 모자
+    ctx.strokeStyle = 'rgba(200,170,230,0.45)'; ctx.stroke();
+    ctx.fillStyle = '#7a3a8a'; ctx.fillRect(-5, -41, 12, 2.5);
+    // 팔: 준비하면 손을 높이 들고 초록 불을 모은다
+    const ax2 = L(8, 4, w), ay2 = L(-16, -40, w);
+    ctx.strokeStyle = '#3a2a48'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(4, -22); ctx.lineTo(ax2 + 8, ay2); ctx.stroke();
+    ctx.restore();
+    if (w > 0.05) { const ox = x + f * (L(8, 4, w) + 8), oy = hy2 + L(-16, -40, w); glows.push(() => warmGlowPlay(ox, oy, 8 + 14 * w, '120,255,90', 0.7 * w)); }
+    eyes(m, [[x + f * 4 - 2, hy2 - 33], [x + f * 4 + 2, hy2 - 33]], '220,255,120', 1.1);
   }
   ctx.restore();
   if (m.slow > 0) { ctx.fillStyle = 'rgba(255,120,140,0.7)'; ctx.font = `11px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText('느려짐', x, y + 14); }
   if (!m.elite && m.hp < m.maxHp) {
     ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(x - 15, y + 6, 30, 4);
     ctx.fillStyle = m.ghost ? '#9ac5ff' : '#d9c98f'; ctx.fillRect(x - 15, y + 6, 30 * m.hp / m.maxHp, 4);
+    if (time < (m.tagT ?? 0)) lateUI.push(() => drawTags(m, x, y + 21));   // 어둠 위에 그려서 깜깜한 곳에서도 읽힘
   }
+}
+// 몬스터 속성 이름표 (예: 육체 · 무기)
+function drawTags(m, x, y) {
+  const tags = MON[m.type].tags || [];
+  if (!tags.length) return;
+  ctx.font = `10px ${FONT}`; ctx.textAlign = 'left';
+  const parts2 = tags.map(t => TAGS[t]), widths = parts2.map(p => ctx.measureText(p.name).width);
+  let cx = x - (widths.reduce((a, b) => a + b, 0) + (tags.length - 1) * 8) / 2;
+  parts2.forEach((p, i) => {
+    ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(cx - 2, y - 9, widths[i] + 4, 12);
+    ctx.fillStyle = p.color; ctx.fillText(p.name, cx, y);
+    cx += widths[i] + 8;
+  });
 }
 // 눈은 어둠 위에 빛나게 그린다 (공격 준비 중에는 더 크게 빛남)
 // 밝은 곳(내 등불, 등불, 호박 빛)에서는 눈빛이 사라지고 평범한 눈만 보인다
@@ -2140,7 +2310,7 @@ function drawDarkness(eliteAlive) {
 
 // ===== 그리기: 화면 전체 =====
 function drawWorld() {
-  lights = []; glows = []; texts2 = [];
+  lights = []; glows = []; texts2 = []; lateUI = [];
   drawBackground();
   drawGround();
   drawBossArena();
@@ -2174,6 +2344,7 @@ function drawWorld() {
     rg.addColorStop(0, 'rgba(120,0,10,0)'); rg.addColorStop(1, `rgba(140,0,15,${red})`);
     ctx.fillStyle = rg; ctx.fillRect(0, 0, W, H);
   }
+  lateUI.forEach(fn => fn());
   // 떠오르는 글자
   ctx.textAlign = 'center';
   for (const t of texts) {
@@ -2234,7 +2405,8 @@ function drawHUD() {
     ctx.fillStyle = el === boss ? '#6a1a5a' : '#8a1c32'; ctx.fillRect(W / 2 - bw / 2, 54, bw * Math.max(0, el.hp) / el.maxHp, 12);
     if (el === boss) { ctx.fillStyle = 'rgba(255,255,255,0.5)'; for (const r of [0.66, 0.33]) ctx.fillRect(W / 2 - bw / 2 + bw * r - 1, 52, 2, 16); }
     ctx.fillStyle = '#fff'; ctx.font = `bold 11px ${FONT}`;
-    ctx.fillText(el === boss ? `무명귀 · 이름을 먹는 악귀 · ${boss.phase}단계` : MON[el.type].name + (el.ghost ? ' · 귀신' : ''), W / 2, 64);
+    ctx.fillText(el === boss ? `무명귀 · 이름을 먹는 악귀 · ${boss.phase}단계` : MON[el.type].name, W / 2, 64);
+    if (el !== boss) drawTags(el, W / 2, 82);
   }
   // 무기 칸
   W_ORDER.forEach((id, i) => {
@@ -2273,7 +2445,8 @@ function drawTitle() {
   ctx.font = `14px ${FONT}`; ctx.fillStyle = '#ccc';
   ['WASD 이동  ·  왼쪽 클릭 공격 (마우스 쪽으로)  ·  1~4 무기 바꾸기',
    '우클릭 / Space 스킬  ·  F 세이브 포인트에서 사후세계 가기  ·  M 소리',
-   '영력이 부족하면 귀신에게 피해가 거의 안 들어간다 (좀비·해골은 상관없음)'].forEach((s, i) => ctx.fillText(s, W / 2, 300 + i * 24));
+   '영력이 부족하면 귀신에게 피해가 거의 안 들어간다 (좀비·해골은 상관없음)',
+   '몬스터마다 속성이 있다: 나는 적은 칼에 덜 맞고, 갑옷은 은장도·부적을 막고, 무기 든 적은 공격 뒤가 빈틈'].forEach((s, i) => ctx.fillText(s, W / 2, 290 + i * 24));
   ctx.font = `bold 18px ${FONT}`; ctx.fillStyle = `rgba(255,220,150,${0.6 + 0.4 * Math.sin(time * 3)})`;
   ctx.fillText('클릭해서 시작', W / 2, 420);
 }
