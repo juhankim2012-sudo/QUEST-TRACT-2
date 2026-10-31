@@ -482,9 +482,8 @@ function pickType() {
   if (d > 500) pool.push(['skeleton', 4]);
   if (d > 1100) pool.push(['wisp', 4]);
   if (d > 3000) pool.push(['shade', 2 + Math.min(4, d / 3000)]);
-  if (d > 800) pool.push(['bat', 2]);
-  if (d > 1800) pool.push(['scarecrow', 3]);
-  if (d > 2600) pool.push(['witch', 2]);
+  // 핼로윈 몬스터(박쥐·허수아비·마녀)는 3번째 구간(2번째 등불 다음, 480m)부터
+  if (d > 2 * SAVE_GAP) pool.push(['bat', 2], ['scarecrow', 3], ['witch', 2]);
   let sum = pool.reduce((s, p) => s + p[1], 0), r = Math.random() * sum;
   for (const [t, w] of pool) { r -= w; if (r <= 0) return t; }
   return 'zombie';
@@ -1805,10 +1804,10 @@ const CODEX_ORDER = ['zombie', 'skeleton', 'bat', 'wisp', 'scarecrow', 'witch', 
 const CODEX_INFO = {
   zombie:    { where: '처음부터', text: '저승길에서 길을 잃고 썩어 버린 몸. 느리지만 꾸준히 따라온다. 두 팔을 머리 위로 들면 곧 내리친다.' },
   skeleton:  { where: '50m 부터', text: '녹슨 칼을 쥔 해골 병사. 빠르게 찌르지만, 찌른 뒤 숨 고를 때가 빈틈이다.' },
-  bat:       { where: '80m 부터', text: '무리 지어 다니는 흡혈 박쥐. 하나하나는 약하지만 이리저리 날아서 칼로는 맞히기 어렵다. 부적이나 방울이 좋다.' },
+  bat:       { where: '480m 부터 (3번째 구간)', text: '무리 지어 다니는 흡혈 박쥐. 하나하나는 약하지만 이리저리 날아서 칼로는 맞히기 어렵다. 부적이나 방울이 좋다.' },
   wisp:      { where: '110m 부터', text: '이름을 잃은 넋. 움츠러들며 붉어지면 몸을 날려 덮친다. 공중에 떠 있어 칼이 잘 안 닿는다.' },
-  scarecrow: { where: '180m 부터', text: '핼로윈 밤에만 깨어나는 호박 머리 허수아비. 큰 낫을 크게 휘두른 뒤에는 한동안 빈틈이 생긴다.' },
-  witch:     { where: '260m 부터', text: '빗자루를 탄 마녀. 멀리서 저주 불덩이를 던지고, 가까이 가면 달아난다. 불덩이는 칼로 벨 수 있다.' },
+  scarecrow: { where: '480m 부터 (3번째 구간)', text: '핼로윈 밤에만 깨어나는 호박 머리 허수아비. 큰 낫을 크게 휘두른 뒤에는 한동안 빈틈이 생긴다.' },
+  witch:     { where: '480m 부터 (3번째 구간)', text: '빗자루를 탄 마녀. 멀리서 저주 불덩이를 던지고, 가까이 가면 달아난다. 불덩이는 칼로 벨 수 있다.' },
   shade:     { where: '300m 부터', text: '빛을 싫어하는 그림자. 느릿느릿하다가 갑자기 달려든다. 영력이 바닥나면 벨 수 없다.' },
   wongwi:    { where: '420m 즈음 (강한 몬스터)', text: '한을 품은 원혼. 사라졌다 나타나고, 비명으로 몸을 굳게 만든다. 잡으면 「원귀의 머리카락」을 준다.' },
   knight:    { where: '770m 즈음 (강한 몬스터)', text: '갑옷을 입은 해골 기사. 붉은 점선이 보이면 돌진한다. 은장도와 부적은 갑옷에 막힌다. 잡으면 「해골 기사의 투구」를 준다.' },

@@ -256,7 +256,8 @@ test('6-3. 몬스터 속성과 새 핼로윈 몬스터', `
   check(!tg0 && tg1 && !tg2, '속성 이름표는 맞은 직후 보이고 3초 뒤 사라짐 (' + tg0 + ' → ' + tg1 + ' → ' + tg2 + ')');
   // 새 몬스터가 거리에 따라 나온다
   const appear = x => { reset(); P.x = x; const set = new Set(); for (let i = 0; i < 400; i++) set.add(pickType()); return set; };
-  check(!appear(600).has('bat') && appear(1000).has('bat') && !appear(1700).has('scarecrow') && appear(2000).has('scarecrow') && !appear(2500).has('witch') && appear(2800).has('witch'), '박쥐 80m · 허수아비 180m · 마녀 260m 부터 나옴');
+  const halloween = ['bat', 'scarecrow', 'witch'];
+  check(halloween.every(h => !appear(4700).has(h)) && halloween.every(h => appear(4900).has(h)), '박쥐·허수아비·마녀는 3번째 구간(480m)부터 나옴 (470m 에는 없음)');
 `);
 
 test('6-4. 설정 창 · 몬스터 도감', `
