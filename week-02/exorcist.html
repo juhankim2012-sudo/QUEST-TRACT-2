@@ -33,7 +33,8 @@
 // ===== 기본 설정 =====
 const W = 960, H = 540, ROAD_TOP = 250, ROAD_BOT = 520;
 const SAVE_GAP = 2400, SAVE_W = 320;          // 세이브 포인트 간격과 폭
-const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+const cv = document.getElementById('c');
+let ctx = cv.getContext('2d');   // 시작 화면에서 실루엣을 그릴 때 잠깐 다른 캔버스로 바꿔 쓴다
 const dk = document.createElement('canvas'); dk.width = W; dk.height = H;
 const dctx = dk.getContext('2d');
 const wrap = document.getElementById('wrap');
@@ -2791,6 +2792,155 @@ function drawHowto() {
   ctx.textAlign = 'center'; ctx.font = `bold 18px ${FONT}`; ctx.fillStyle = `rgba(255,220,150,${0.6 + 0.4 * Math.sin(time * 3)})`;
   ctx.fillText('Space 또는 클릭해서 시작', W / 2, H - 56);
 }
+// ===== 시작 전 화면 (썸네일) =====
+// 거대한 핼로윈 달 앞에 무명귀, 왼쪽 뒤에 야행귀, 달을 가로지르는 마녀와 박쥐 떼,
+// 저승 마을 지붕들, 앞쪽에 몬스터 실루엣, 가운데에 금강저를 휘두르는 퇴마사와 등을 맞댄 그림자 퇴마사.
+// 몬스터는 따로 그린 다음 한 가지 어두운 색으로 칠해서 실루엣으로 만들고, 달 쪽 가장자리에 빛 테두리를 준다.
+let TITLE_ART = false;
+const silCv = document.createElement('canvas'); silCv.width = W; silCv.height = H;
+const tintCv = document.createElement('canvas'); tintCv.width = W; tintCv.height = H;
+const sctx = silCv.getContext('2d'), tctx = tintCv.getContext('2d');
+// 그림 속 가짜 몬스터 (위치는 transform 으로 옮긴다)
+function artMon(type, opt = {}) {
+  const d = MON[type];
+  return Object.assign({ type, x: cam.x, y: 0, hp: 1, maxHp: 1, r: d.r, ghost: d.ghost, elite: !!d.elite, fade: 1, t: time, seed: 0.37,
+    face: 1, fs: 1, amp: 0.6, hover: d.ghost ? 14 : type === 'bat' ? 0 : type === 'witch' ? 0 : 0, slow: 0, flash: 0, vx: 0, vy: 0,
+    phase: 1, intro: 0, trans: 0, act: null, atk: null, cs: 'walk', ct: 3 }, opt);
+}
+// 그리기 하나: [몬스터, x, y, 크기, 좌우 뒤집기]
+function drawArtItem(it) {
+  const [m, x, y, s] = it;
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s);
+  if (typeof m === 'function') m(); else drawMonster(m);
+  ctx.restore();
+}
+// 실루엣 그리기: 몬스터 모양만 어두운 색으로 칠하고, 달 쪽(rimOff)으로 밀린 빛 테두리를 먼저 깐다. 눈빛은 그 위에 빛나게
+function drawSilhouettes(items, dark, rim, rimOff) {
+  sctx.setTransform(1, 0, 0, 1, 0, 0); sctx.globalCompositeOperation = 'source-over'; sctx.clearRect(0, 0, W, H);
+  const realCtx = ctx, g0 = glows, perItem = [];
+  ctx = sctx;
+  try { for (const it of items) { glows = []; drawArtItem(it); perItem.push([it, glows]); } }
+  finally { ctx = realCtx; glows = g0; }
+  const tint = col => { tctx.globalCompositeOperation = 'source-over'; tctx.clearRect(0, 0, W, H); tctx.drawImage(silCv, 0, 0); tctx.globalCompositeOperation = 'source-in'; tctx.fillStyle = col; tctx.fillRect(0, 0, W, H); };
+  if (rim) { tint(rim); ctx.drawImage(tintCv, rimOff[0], rimOff[1]); }
+  if (dark) { tint(dark); ctx.drawImage(tintCv, 0, 0); }
+  // 눈빛 · 등롱 빛 같은 빛나는 것들은 실루엣 위에 그대로
+  ctx.globalCompositeOperation = 'lighter';
+  for (const [it, gl] of perItem) { const [, x, y, s] = it; ctx.save(); ctx.translate(x, y); ctx.scale(s, s); gl.forEach(fn => fn()); ctx.restore(); }
+  ctx.globalCompositeOperation = 'source-over';
+}
+// 바로 그리면서 빛나는 것도 같은 자리에 (퇴마사, 마을, 혼령 등)
+function withGlows(fn) {
+  const g0 = glows; glows = [];
+  try { fn(); ctx.globalCompositeOperation = 'lighter'; glows.forEach(g => g()); }
+  finally { ctx.globalCompositeOperation = 'source-over'; glows = g0; }
+}
+function drawTitleArt() {
+  TITLE_ART = true; lights = []; lateUI = [];
+  const t = time;
+  ctx.save();
+  // 화면 전체를 살짝 기울이고 조금 키워서 모서리가 비지 않게
+  ctx.translate(W / 2, H / 2); ctx.rotate(-0.045); ctx.scale(1.08, 1.08); ctx.translate(-W / 2, -H / 2);
+  // 1) 핏빛 핼로윈 하늘과 거대한 달
+  const sky = ctx.createLinearGradient(0, -40, 0, H);
+  sky.addColorStop(0, '#07040f'); sky.addColorStop(0.45, '#2a0e2e'); sky.addColorStop(0.8, '#5a1626'); sky.addColorStop(1, '#2a0a14');
+  ctx.fillStyle = sky; ctx.fillRect(-60, -60, W + 120, H + 120);
+  for (let i = 0; i < 80; i++) { ctx.globalAlpha = 0.25 + 0.5 * Math.abs(Math.sin(t * (0.4 + hash(i, 2)) + i)); ctx.fillStyle = '#ffe9d0'; ctx.fillRect(hash(i, 1) * W, hash(i, 3) * 260 - 30, 1.6, 1.6); }
+  ctx.globalAlpha = 1;
+  const mx = 690, my = 175, mr = 118;
+  warmGlowPlay(mx, my, mr * 2.6, '255,170,110', 0.28 + 0.04 * Math.sin(t * 1.5));
+  const mg = ctx.createRadialGradient(mx - 30, my - 30, 10, mx, my, mr);
+  mg.addColorStop(0, '#fff3d6'); mg.addColorStop(0.7, '#ffd9a0'); mg.addColorStop(1, '#f2a870');
+  ctx.fillStyle = mg; ctx.beginPath(); ctx.arc(mx, my, mr, 0, 7); ctx.fill();
+  ctx.fillStyle = 'rgba(200,120,80,0.25)'; for (const [cx2, cy2, cr] of [[-40, -20, 18], [30, 40, 26], [45, -45, 12], [-20, 55, 10]]) { ctx.beginPath(); ctx.arc(mx + cx2, my + cy2, cr, 0, 7); ctx.fill(); }
+  // 2) 먼 보스들: 달 앞의 무명귀, 왼쪽 뒤의 야행귀
+  drawSilhouettes([
+    [artMon('boss', { t, face: -1, fs: -1 }), 700, 470, 1.45],
+    [artMon('yahaeng', { t, face: 1, fs: 1, amp: 0 }), 175, 450, 1.05],
+  ], '#24122e', 'rgba(255,190,140,0.55)', [3, -2]);
+  // 3) 달을 가로지르는 마녀와 박쥐 떼
+  const bats = [[600, 118, 1.1], [648, 92, 0.9], [706, 128, 1.2], [770, 104, 0.85], [812, 152, 1], [560, 168, 0.8], [742, 214, 0.95], [660, 250, 0.75]];
+  drawSilhouettes([
+    [artMon('witch', { t, face: -1, fs: -1, hover: 0 }), 850 - ((t * 18) % 60), 238, 1.5],
+    ...bats.map(([x, y, s], i) => [artMon('bat', { t: t + i * 0.37, face: i % 2 ? 1 : -1, fs: i % 2 ? 1 : -1, hover: 0, seed: i * 0.13 }), x + Math.sin(t * 1.3 + i) * 8, y + Math.cos(t * 1.7 + i) * 6, s]),
+  ], '#100812', 'rgba(255,200,150,0.6)', [2, -2]);
+  // 4) 저승 마을 지붕들 (불 켜진 창문, 연등 줄, 석탑)
+  withGlows(() => {
+    ctx.fillStyle = '#1a0c18'; ctx.fillRect(-60, 420, W + 120, 200);
+    VB = 430;
+    [[40, 150, 54, 81], [205, 140, 58, 82], [370, 170, 70, 83, 2], [600, 150, 56, 84], [790, 160, 64, 85], [950, 140, 54, 86]]
+      .forEach(([x, w, h, sd, tiers]) => drawHouse(x, w, h, sd, tiers || 1));
+    VB = 430; drawPagoda(500);
+    ctx.globalAlpha = 0.85; VB = 445; drawLanternString(300, 560); ctx.globalAlpha = 1;
+  });
+  // 안개
+  for (let k = 0; k < 5; k++) { const x = ((k * 260 + t * 16) % (W + 400)) - 200, y = 440 + (k % 2) * 30; warmGlowPlay(x, y, 220, '160,120,170', 0.1); }
+  // 5) 앞쪽 몬스터 실루엣: 좀비 · 해골 병사 · 낫을 든 호박 허수아비
+  drawSilhouettes([
+    [artMon('zombie', { t, face: 1, fs: 1 }), 92, 498, 1.6],
+    [artMon('skeleton', { t, face: 1, fs: 1, atk: { phase: 'wind', t: 0.12 } }), 258, 506, 1.55],
+    [artMon('scarecrow', { t, face: -1, fs: -1, atk: { phase: 'wind', t: 0.15 } }), 872, 522, 1.9],
+  ], '#0a0510', 'rgba(220,190,255,0.5)', [2, -2]);
+  // 떠도는 혼령들 (빛나니까 실루엣 대신 그대로)
+  withGlows(() => {
+    for (const [x, y, s, i] of [[320, 330, 1.4, 0], [610, 360, 1.2, 1], [920, 330, 1.1, 2]]) { ctx.save(); ctx.translate(x, y + Math.sin(t * 1.4 + i) * 8); ctx.scale(s, s); drawMonster(artMon('wisp', { t: t + i, hover: 14, seed: 0.2 + i * 0.3 })); ctx.restore(); }
+  });
+  // 6) 그림자 퇴마사: 퇴마사와 등을 맞대고 선 검은 그림자
+  drawSilhouettes([[artMon('shadowex', { t, face: -1, fs: -1, amp: 0 }), 455, 506, 2.15]], '#140a1c', 'rgba(190,150,255,0.65)', [-3, -2]);
+  // 7) 주인공 퇴마사: 금강저를 크게 휘두르는 자세 (색 그대로, 달빛 테두리)
+  const px = 565, py = 508, ps = 2.3, aim = -0.25, pose = { off: 0.95, ext: 6 };
+  const w0 = weapon, amp0 = P.amp, walk0 = P.walk, inv0 = P.inv;
+  weapon = 'vajra'; P.amp = 0.7; P.walk = 0.12; P.inv = 0;
+  try {
+    // 금강저가 지나간 금빛 초승달
+    ctx.save(); ctx.translate(px, py); ctx.scale(ps, ps);
+    ctx.globalCompositeOperation = 'lighter';
+    const R = 46, tail = -1.9, head = 1.0;
+    ctx.beginPath();
+    for (let i = 0; i <= 24; i++) { const an = lerp(tail, head, i / 24); ctx.lineTo(Math.cos(an) * R, -30 + Math.sin(an) * R); }
+    for (let i = 24; i >= 0; i--) { const k = i / 24, an = lerp(tail, head, k), th = 12 * Math.pow(k, 1.3); ctx.lineTo(Math.cos(an) * (R - th), -30 + Math.sin(an) * (R - th)); }
+    ctx.closePath(); ctx.fillStyle = 'rgba(255,200,90,0.75)'; ctx.fill();
+    warmGlowPlay(Math.cos(head) * R, -30 + Math.sin(head) * R, 22, '255,220,140', 0.8);
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.restore();
+    // 달빛 테두리 (몸 실루엣을 달 쪽으로 살짝 밀어서 밝게)
+    drawSilhouettes([[() => drawPlayer(0, 0, 'side', { a: aim, pose }), px, py, ps]], null, 'rgba(255,215,170,0.75)', [3, -3]);
+    withGlows(() => { ctx.save(); ctx.translate(px, py); ctx.scale(ps, ps); drawPlayer(0, 0, 'side', { a: aim, pose }); ctx.restore(); });
+  } finally { weapon = w0; P.amp = amp0; P.walk = walk0; P.inv = inv0; }
+  // 불티와 혼불 빛이 떠오른다
+  for (let i = 0; i < 40; i++) {
+    const x = hash(i, 50) * W, y = H + 20 - ((t * (20 + hash(i, 51) * 40) + hash(i, 52) * H) % (H + 60));
+    ctx.globalAlpha = 0.3 + 0.5 * Math.abs(Math.sin(t * 2 + i)); ctx.fillStyle = i % 3 ? '#ffb070' : '#bfe8ff';
+    ctx.beginPath(); ctx.arc(x, y, 1.2 + hash(i, 53) * 1.8, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+  // 8) 앞쪽 모서리의 호박등
+  withGlows(() => { for (const [x, s] of [[24, 2.0], [W - 24, 2.2]]) { ctx.save(); ctx.translate(x, 560); ctx.scale(s, s); drawPumpkin(0, 0); ctx.restore(); } });
+  ctx.restore();
+  // 가장자리를 어둡게
+  const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, W * 0.7);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, 'rgba(0,0,0,0.75)');
+  ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
+  TITLE_ART = false;
+}
+// 제목 글자 (기울이지 않고 반듯하게)
+function drawTitle() {
+  ctx.save();
+  ctx.textAlign = 'left';
+  ctx.font = `900 64px ${FONT}`;
+  ctx.shadowColor = 'rgba(255,120,40,0.9)'; ctx.shadowBlur = 26;
+  ctx.fillStyle = '#ffe2b8'; ctx.fillText('저승길 퇴마록', 44, 100);
+  ctx.shadowBlur = 0;
+  ctx.lineWidth = 2; ctx.strokeStyle = 'rgba(80,20,10,0.8)'; ctx.strokeText('저승길 퇴마록', 44, 100);
+  ctx.font = `bold 17px ${FONT}`; ctx.fillStyle = '#f2c8a0';
+  ctx.fillText('핼로윈 밤, 이승과 저승 사이의 길이 열렸다', 48, 134);
+  ctx.font = `bold 20px ${FONT}`;
+  ctx.shadowColor = 'rgba(0,0,0,0.9)'; ctx.shadowBlur = 8;
+  ctx.fillStyle = `rgba(255,225,160,${0.65 + 0.35 * Math.sin(time * 3)})`; ctx.fillText('▶ 클릭해서 시작', 50, 182);
+  ctx.font = `12px ${FONT}`; ctx.fillStyle = 'rgba(230,210,200,0.75)'; ctx.fillText('Esc 설정 · 몬스터 도감 · 도움말', 52, 206);
+  ctx.restore();
+}
+
 // ===== 그리기: 배경 =====
 let lights = [], glows = [], lateUI = [];   // lateUI: 어둠보다 나중에 그리는 글자 (속성 이름표)
 function drawBackground() {
@@ -2949,7 +3099,7 @@ let texts2 = [];
 
 // ===== 그리기: 캐릭터 =====
 function shadow(x, y, r) { ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.beginPath(); ctx.ellipse(x, y, r, r * 0.35, 0, 0, 7); ctx.fill(); }
-function drawPlayer(x, y, view = 'side') {
+function drawPlayer(x, y, view = 'side', ov = null) {   // ov: 시작 화면처럼 자세를 직접 정할 때 { a: 보는 각, pose }
   if (view !== 'side') return drawPlayerFB(x, y, view);   // 사후세계에서 위아래로 걸을 때
   // 보는 방향: 공격할 땐 마우스 쪽, 왼쪽·오른쪽으로 걸을 땐 걷는 쪽, 가만히 있을 땐 마지막에 보던 쪽
   let a;
@@ -2964,7 +3114,7 @@ function drawPlayer(x, y, view = 'side') {
   const dtD = Math.min(0.05, Math.max(0, time - (P.drawT ?? time))); P.drawT = time;
   if (state === 'play' && (mouse.down || P.atkCd > 0)) P.drawA = a;
   else { let d = a - P.drawA; d = Math.atan2(Math.sin(d), Math.cos(d)); P.drawA += d * ease(18, dtD); }
-  a = P.drawA;
+  a = ov ? ov.a : P.drawA;
   const f = Math.cos(a) >= 0 ? 1 : -1;
   const step = Math.sin(P.walk * 11) * P.amp;
   shadow(x, y, 16);
@@ -2980,7 +3130,7 @@ function drawPlayer(x, y, view = 'side') {
   ctx.fillStyle = '#e9e4d8'; ctx.fillRect(x - 10, by - 26, 20, 3);
   ctx.strokeStyle = '#3a4266'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(x, by - 38); ctx.lineTo(x, by - 4); ctx.stroke();
   // 팔과 무기
-  const pose = state === 'play' ? swingPose() : { off: 0, ext: 0 };
+  const pose = ov ? ov.pose : state === 'play' ? swingPose() : { off: 0, ext: 0 };
   const aa = a + pose.off, reach = 15 + pose.ext;
   const hx = x + Math.cos(aa) * reach, hy = by - 30 + Math.sin(aa) * (12 + pose.ext * 0.6);
   ctx.strokeStyle = '#20263f'; ctx.lineWidth = 6; ctx.beginPath(); ctx.moveTo(x, by - 32); ctx.lineTo(hx, hy); ctx.stroke();
@@ -3245,7 +3395,7 @@ function eyes(m, list, rgb, r) {
   ctx.fillStyle = `rgba(${rgb},0.85)`;
   for (const [ex, ey] of list) { ctx.beginPath(); ctx.arc(ex, ey, r * 0.55, 0, 7); ctx.fill(); }
   if (wind) { r *= 1.7; glows.push(() => eyeGlow(list, rgb, r, al)); return; }   // 공격 준비 중에는 밝아도 번뜩임
-  glows.push(() => { const dark = darkAt(list[0][0], list[0][1]); if (dark > 0.02) eyeGlow(list, rgb, r, al * dark); });
+  glows.push(() => { const dark = TITLE_ART ? 1 : darkAt(list[0][0], list[0][1]); if (dark > 0.02) eyeGlow(list, rgb, r, al * dark); });
 }
 // 그 자리가 얼마나 어두운지 (1 = 깜깜함, 0 = 밝음). 어둠 그리기와 같은 빛 계산을 쓴다
 function darkAt(x, y) {
@@ -3504,20 +3654,7 @@ function drawMsgs() {
   });
   ctx.globalAlpha = 1;
 }
-function drawTitle() {
-  ctx.fillStyle = 'rgba(0,0,0,0.45)'; ctx.fillRect(0, 0, W, H);
-  ctx.textAlign = 'center';
-  ctx.font = `bold 54px ${FONT}`; ctx.fillStyle = '#e8ddff'; ctx.fillText('저승길 퇴마록', W / 2, 170);
-  ctx.font = `16px ${FONT}`; ctx.fillStyle = '#b8acd6'; ctx.fillText('핼로윈 밤, 이승과 저승 사이의 길이 열렸다', W / 2, 205);
-  ctx.font = `14px ${FONT}`; ctx.fillStyle = '#ccc';
-  ['WASD 이동  ·  왼쪽 클릭 공격 (마우스 쪽으로)  ·  1~4 무기 바꾸기',
-   '우클릭 / Space 스킬  ·  F 세이브 포인트에서 사후세계 가기  ·  M 소리',
-   '영력이 부족하면 귀신에게 피해가 거의 안 들어간다 (좀비·해골은 상관없음)',
-   '몬스터마다 속성이 있다: 나는 적은 칼에 덜 맞고, 갑옷은 은장도·부적을 막고, 무기 든 적은 공격 뒤가 빈틈',
-   'Esc 설정 · 몬스터 도감'].forEach((s, i) => ctx.fillText(s, W / 2, 280 + i * 24));
-  ctx.font = `bold 18px ${FONT}`; ctx.fillStyle = `rgba(255,220,150,${0.6 + 0.4 * Math.sin(time * 3)})`;
-  ctx.fillText('클릭해서 시작', W / 2, 432);
-}
+
 // 죽은 화면: DEAD_LOCK 초 동안은 눌러도 안 넘어가고, DEAD_AUTO 초가 되면 저절로 다시 시작
 const DEAD_LOCK = 2, DEAD_AUTO = 3.5;
 let deadT = 0;
@@ -4223,7 +4360,7 @@ function loop(now) {
   if (state === 'mini') { if (!menu && !devMenu) updateMini(dt); drawMini(); }
   else if (state === 'afterlife') { if (!menu && !devMenu) updateAfterlife(dt); drawAfterlife(); }
   else {
-    drawWorld();
+    if (state === 'title' || state === 'howto') drawTitleArt(); else drawWorld();
     if (state === 'play' || state === 'dead') drawHUD();
     if (state === 'title') drawTitle();
     if (state === 'howto') drawHowto();
