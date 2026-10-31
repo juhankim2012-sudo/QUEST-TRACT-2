@@ -309,6 +309,34 @@ test('6-4. 설정 창 · 몬스터 도감', `
   check(CODEX_ORDER.every(t => CODEX_INFO[t] && MON[t].tags), '모든 몬스터에 도감 설명과 속성이 있음');
 `);
 
+test('6-5. 무기마다 휘두르는 동작과 효과', `
+  for (const id of W_ORDER) owned[id] = true;
+  const poses = {};
+  for (const id of W_ORDER) {
+    reset(); for (const k of W_ORDER) owned[k] = true; weapon = id; P.atkCd = 0; P.sp = P.maxSp; mouse.x = P.x + 200 - cam.x; mouse.y = P.y - 28;
+    attack();
+    const offs = []; for (let i = 0; i < 30; i++) { offs.push(swingPose().off); drawWorld(); update(1 / 60); }
+    poses[id] = offs;
+    const jump = offs.slice(1).reduce((m, v, i) => Math.max(m, Math.abs(v - offs[i])), 0);
+    check(Math.max(...offs.map(Math.abs)) > 0.25 && Math.abs(offs[offs.length - 1]) < 0.01 && jump < 0.45, WEAPONS[id].name + ': 팔이 휘둘렀다가 제자리로 돌아옴 (가장 크게 돌린 각 ' + Math.max(...offs.map(Math.abs)).toFixed(2) + ', 한 순간 최대 변화 ' + jump.toFixed(2) + ')');
+  }
+  check(JSON.stringify(poses.dagger) !== JSON.stringify(poses.vajra) && JSON.stringify(poses.vajra) !== JSON.stringify(poses.bell), '무기마다 팔 움직임이 다름');
+  // 금강저: 머리 뒤로 들었다가 내리침 (처음엔 반대쪽으로) + 화면 흔들림
+  check(poses.vajra[5] < -0.5 && poses.vajra[15] > 0, '금강저: 먼저 뒤로 크게 들었다가 앞으로 내리침');
+  reset(); owned.vajra = true; weapon = 'vajra'; P.atkCd = 0; mouse.x = P.x + 200 - cam.x; mouse.y = P.y - 28; attack();
+  check(shake > 3, '금강저로 내리치면 화면이 흔들림'); run(0.5); check(shake === 0, '흔들림은 금방 멈춤');
+  // 칼 자국은 칼끝을 따라 그려진다 (처음엔 짧고 점점 길어짐)
+  reset(); weapon = 'dagger'; P.atkCd = 0; mouse.x = P.x + 200 - cam.x; mouse.y = P.y - 28; attack();
+  const e = effects.find(x => x.kind === 'wslash');
+  check(!!e && e.w === 'dagger', '은장도로 베면 은빛 칼 자국이 생김');
+  // 부적은 잔상, 방울은 물결 세 겹
+  reset(); owned.talisman = true; weapon = 'talisman'; P.atkCd = 0; mouse.x = P.x + 200 - cam.x; mouse.y = P.y - 28; attack(); run(0.1);
+  check(shots[0] && shots[0].trail.length >= 5, '퇴마 부적: 날아가며 잔상이 남음');
+  reset(); owned.bell = true; weapon = 'bell'; P.atkCd = 0; attack();
+  check(effects.filter(x => x.kind === 'ring').length === 3, '신령 방울: 소리 물결이 세 겹으로 퍼짐');
+  check(Object.keys(PLAYER_SOUNDS).length === 4, '무기 4개 모두 휘두르는 소리가 있음');
+`);
+
 test('7. 눈빛: 몬스터는 밝으면 사라지고, 포인트는 언제나 멀리 있는 몬스터 눈빛', `
   let glow = [], icon = 0;
   eyeGlow = (l, rgb, r, al) => glow.push(al);
@@ -525,6 +553,7 @@ test('13. 몬스터 소리 (가짜 스피커로 확인)', `
     if (made < 2) bad.push(type + ':' + act + ' (소리가 안 만들어짐)');
     all++;
   }
+  for (const k in PLAYER_SOUNDS) { voiceEnds.length = 0; made = 0; try { playerSound(k); } catch (e) { bad.push('내 무기 ' + k + ' ' + e.message); } if (made < 2) bad.push('내 무기 ' + k + ' (소리 안 만들어짐)'); }
   check(bad.length === 0, '몬스터 10종의 소리 ' + all + '가지가 모두 오류 없이 만들어짐' + (bad.length ? ' — ' + bad.join(', ') : ''));
   for (const type of ['zombie', 'skeleton', 'wisp', 'shade', 'wongwi', 'knight', 'scarecrow', 'bat', 'witch']) check(['idle', 'hit', 'hurt', 'die'].every(a => MON_SOUNDS[type][a] || (type === 'knight' && a === 'idle')), MON_SOUNDS[type] ? MON[type].name + ': 평소·공격·맞음·퇴마 소리가 다 있음' : type);
   voiceEnds.length = 0; made = 0; monSound('zombie', 'idle', P.x + 2000);
