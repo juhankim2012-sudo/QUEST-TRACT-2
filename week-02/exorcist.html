@@ -172,6 +172,7 @@ cv.addEventListener('mousemove', toCanvas);
 cv.addEventListener('mousedown', e => {
   toCanvas(e); initAudio();
   if (menu) { menuClick(); return; }   // 설정 창이 열려 있으면 창 안의 버튼만
+  if (state === 'mini') { miniClick(); return; }
   if (state === 'title') { newGame(); state = 'play'; msg('저승길이 열렸다…', 2.5); return; }
   if (state === 'dead') { deadClick(); return; }
   if (state === 'ending') {
@@ -216,6 +217,7 @@ function onKey(code) {
   const digit = /^(Digit|Numpad)(\d)$/.exec(code);
   if (digit) { devKeys = (devKeys + digit[2]).slice(-8); if (devKeys.length === 8 && fnv(devKeys) === DEV_HASH) { devKeys = ''; devWarp(); return; } }
   if (menu) { menuKey(code); return; }   // 설정 창이 열려 있으면 다른 키는 무시
+  if (state === 'mini') { miniKey(code); return; }
   if (code === 'KeyM') toggleMute();
   if (code === 'Escape' && (state === 'play' || state === 'title')) { openMenu(); return; }
   if (state === 'ending') {
@@ -232,6 +234,7 @@ function onKey(code) {
       const n = nearAfter();
       if (n === 'portal') leaveAfterlife();
       else if (typeof n === 'string') openTalk(n);
+      else if (n && n.fee) openMini(n);
       else if (n) openChat(n);
     }
     return;
@@ -915,7 +918,7 @@ const CITIZENS = [
   { name: '스님 혼령', look: 'monk', x: 1300, y: 1700, range: 40, lines: [
     '종이 울리면 길 잃은 넋들이 돌아온다. 너도 길 잃지 마라.',
     '원한이 깊은 혼일수록 원념도 깊지. 대장장이가 그걸 좋아한다.'] },
-  { name: '종지기', look: 'guard', x: 1760, y: 1690, range: 15, lines: [
+  { name: '종지기', look: 'guard', x: 1820, y: 1690, range: 15, lines: [
     '종은 하루에 한 번만 친다. 두 번 치면…',
     '…두 번 친 날은 없던 걸로 해 줘.'] },
   // 5줄 아랫동네
@@ -988,6 +991,7 @@ function nextChat() {
 function nearAfter() {
   for (const n of NPCS) if (Math.abs(AP.x - n.x) < 75 && Math.abs(AP.y - n.y) < 110) return n.id;
   if (Math.hypot(AP.x - PORTAL.x, AP.y - PORTAL.y) < 85) return 'portal';
+  for (const d of MINIS) if (Math.abs(AP.x - d.x) < 55 && Math.abs(AP.y - d.y) < 60) return d;   // 미니게임 문
   let best = null, bd = 1e9;
   for (const c of CITIZENS) {
     const d = Math.hypot(AP.x - c.x, (AP.y - c.y) * 0.8);
@@ -2016,6 +2020,335 @@ function drawGearButton() {
   ctx.fillText('⚙ 설정·도감 (Esc)', b.x + b.w / 2, b.y + 19);
 }
 const onGear = () => mouse.x >= GEAR_BTN.x && mouse.x <= GEAR_BTN.x + GEAR_BTN.w && mouse.y >= GEAR_BTN.y && mouse.y <= GEAR_BTN.y + GEAR_BTN.h;
+
+// ===== 사후세계 미니게임 =====
+// 마을 건물 문 앞에서 F → 새 화면으로 넘어가서 한다. 시작할 때 입장료를 내고, 성공하면 포인트를 받는다.
+// 두 개는 처음부터, 두 개는 무명귀를 퇴마한 뒤에 열린다.
+const MINIS = [
+  { id: 'cups', name: '술잔 돌리기', place: '저승 주막', x: 1450, y: 2095, host: '주모', fee: { soul: 10 }, unlock: false,
+    line: '잔 밑에 혼불이 하나. 눈 크게 뜨고 따라와. 맞히면 세 배로 쳐 줄게.',
+    rules: ['처음에 혼불이 든 잔을 잘 보세요', '잔이 여덟 번 섞인 뒤, 혼불이 든 잔을 고르세요 (클릭 또는 1 · 2 · 3)'], prize: '맞히면 혼불 30' },
+  { id: 'bell', name: '범종 치기', place: '저승사 종각', x: 1700, y: 1645, host: '종지기', fee: { soul: 8 }, unlock: false,
+    line: '종은 하루에 한 번만 치는데… 오늘은 특별히 다섯 번. 한가운데를 맞혀.',
+    rules: ['움직이는 표시가 가운데 빛나는 칸에 왔을 때 Space 또는 클릭', '모두 다섯 번 칩니다. 칠수록 표시가 빨라져요'], prize: '점수에 따라 망자의 눈물 1 ~ 4' },
+  { id: 'pond', name: '진짜 혼불 찾기', place: '탑 광장 연꽃 연못', x: 1100, y: 1200, host: '탑 도는 망자', fee: { soul: 15 }, unlock: true,
+    line: '연못에 혼불 셋이 빠졌어. 나머지는… 눈이야. 아흔아홉 번째로 말해 주는 거야.',
+    rules: ['처음에 금빛으로 빛나는 혼불 셋을 기억하세요', '모두 똑같은 눈빛이 되어 떠다닌 뒤, 혼불 셋을 클릭해서 고르세요'], prize: '맞힌 혼불마다 원념 조각 1 + 혼불 5, 셋 다 맞히면 원념 조각 +2' },
+  { id: 'rice', name: '떡 받기', place: '저승 장터', x: 1125, y: 305, host: '떡집 할머니', fee: { soul: 10 }, unlock: true,
+    line: '떡 받아 가거라. 해골은 받지 말고. 받으면… 이승 기억이 하나 지워진단다.',
+    rules: ['A · D 또는 마우스로 바구니를 움직여 떨어지는 떡을 받으세요', '흰 떡 +1 · 금빛 떡 +3 · 해골 -2 · 20초 동안'], prize: '점수 × 2 만큼 혼불' },
+];
+const miniLocked = d => d.unlock && !bossDone;
+let mini = null;   // { def, phase: 'intro' | 'play' | 'result', t, g(게임 상태), result }
+function openMini(def) {
+  if (miniLocked(def)) { msg('🔒 무명귀를 퇴마하면 열려요', 2, '#c3b5ff'); return; }
+  state = 'mini'; mini = { def, phase: 'intro', t: 0, g: null, note: '' };
+  mouse.down = false; sfx(330, 0.3, 'sine', 0.06, 495);
+}
+function miniStart() {
+  if (!canPay(mini.def.fee)) { mini.note = `${PT_NAMES.soul}이 모자라요 (${mini.def.fee.soul} 필요)`; sfx(160, 0.2, 'square', 0.05, 120); return; }
+  pay(mini.def.fee);
+  mini.phase = 'play'; mini.t = 0; mini.note = ''; mini.g = GAMES[mini.def.id].init();
+}
+function miniEnd(reward, text, ok) {
+  for (const k in reward) pts[k] += reward[k];
+  mini.phase = 'result'; mini.t = 0; mini.result = { reward, text, ok };
+  if (ok) { sfx(660, 0.2, 'sine', 0.08, 990); setTimeout(() => sfx(990, 0.3, 'sine', 0.07, 1320), 150); } else sfx(220, 0.5, 'sine', 0.07, 110);
+}
+function leaveMini() { mini = null; state = 'afterlife'; }
+function updateMini(dt) { mini.t += dt; if (mini.phase === 'play') GAMES[mini.def.id].update(mini.g, dt); }
+function miniKey(code) {
+  if (code === 'Escape') return leaveMini();
+  if (mini.phase !== 'play') { if (code === 'Space' || code === 'Enter' || code === 'KeyF') miniStart(); return; }
+  const G = GAMES[mini.def.id]; if (G.key) G.key(mini.g, code);
+}
+function miniClick() {
+  if (mini.phase !== 'play') {
+    for (const b of miniButtons()) if (mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h) b.fn();
+    return;
+  }
+  const G = GAMES[mini.def.id]; if (G.click) G.click(mini.g);
+}
+function miniButtons() {
+  const again = mini.phase === 'result';
+  return [
+    { x: W / 2 - 230, y: 396, w: 220, h: 46, text: again ? `다시 하기 (혼불 ${mini.def.fee.soul})` : `시작 (혼불 ${mini.def.fee.soul} 냄)`, fn: miniStart },
+    { x: W / 2 + 10, y: 396, w: 220, h: 46, text: '나가기 (Esc)', fn: leaveMini },
+  ];
+}
+const rnd = n => Math.floor(Math.random() * n);
+
+// --- 1. 술잔 돌리기 ---
+const CUP_X = [300, 480, 660], CUP_Y = 340;
+const GAMES = {};
+GAMES.cups = {
+  init: () => ({ ball: rnd(3), pos: [0, 1, 2], step: 'show', t: 0, left: 8, speed: 0.36, swap: null, pick: -1 }),
+  newSwap(g) {
+    const sa = rnd(3); let sb = rnd(2); if (sb >= sa) sb++;
+    g.swap = { ca: g.pos.indexOf(sa), cb: g.pos.indexOf(sb), sa, sb }; g.t = 0;
+    sfx(520 + rnd(200), 0.06, 'triangle', 0.04);
+  },
+  update(g, dt) {
+    g.t += dt;
+    if (g.step === 'show' && g.t > 1.5) { g.step = 'shuffle'; this.newSwap(g); }
+    else if (g.step === 'shuffle' && g.t >= g.speed) {
+      const s = g.swap; g.pos[s.ca] = s.sb; g.pos[s.cb] = s.sa;
+      g.left--; g.speed *= 0.93;
+      if (g.left <= 0) { g.step = 'pick'; g.swap = null; g.t = 0; } else this.newSwap(g);
+    } else if (g.step === 'reveal' && g.t > 1.4) {
+      const ok = g.pick === g.ball;
+      miniEnd(ok ? { soul: 30 } : {}, ok ? '맞혔다! 혼불 +30' : '빈 잔이었다…', ok);
+    }
+  },
+  choose(g, slot) { if (g.step !== 'pick') return; g.pick = g.pos.indexOf(slot); g.step = 'reveal'; g.t = 0; sfx(440, 0.1, 'triangle', 0.05); },
+  key(g, code) { const n = ['Digit1', 'Digit2', 'Digit3'].indexOf(code); if (n >= 0) this.choose(g, n); },
+  click(g) { CUP_X.forEach((cx, slot) => { if (Math.abs(mouse.x - cx) < 60 && mouse.y > CUP_Y - 80 && mouse.y < CUP_Y + 20) this.choose(g, slot); }); },
+  cupXY(g, i) {
+    const s = g.swap;
+    if (g.step === 'shuffle' && s && (i === s.ca || i === s.cb)) {
+      const k = clamp(g.t / g.speed, 0, 1), e = k * k * (3 - 2 * k);
+      const from = i === s.ca ? s.sa : s.sb, to = i === s.ca ? s.sb : s.sa;
+      return [lerp(CUP_X[from], CUP_X[to], e), CUP_Y + Math.sin(e * Math.PI) * (i === s.ca ? -40 : 40)];
+    }
+    return [CUP_X[g.pos[i]], CUP_Y];
+  },
+  draw(g) {
+    // 주막 안: 따뜻한 등불, 나무 상
+    ctx.fillStyle = '#1a100b'; ctx.fillRect(0, 0, W, H);
+    warmGlowPlay(W / 2, 120, 380, '255,170,90', 0.18);
+    ctx.fillStyle = '#2b1a10'; for (let i = 0; i < 6; i++) ctx.fillRect(i * 170 + 20, 0, 14, 260);
+    ctx.fillStyle = '#3d2716'; ctx.fillRect(140, 360, 680, 30); ctx.fillStyle = '#2a1a0e'; ctx.fillRect(150, 390, 660, 120);
+    for (const lx of [120, 840]) { ctx.fillStyle = 'rgba(220,70,60,0.95)'; ctx.beginPath(); ctx.ellipse(lx, 90, 18, 24, 0, 0, 7); ctx.fill(); warmGlowPlay(lx, 90, 60, '255,120,90', 0.35); }
+    if (!g) return;
+    for (let i = 0; i < 3; i++) {
+      const [x, y] = this.cupXY(g, i);
+      const lifted = g.step === 'show' || (g.step === 'reveal' && (i === g.pick || i === g.ball));
+      const up = lifted ? 70 * Math.min(1, g.t * 5) : 0;
+      if (i === g.ball && lifted) { warmGlowPlay(x, y - 14, 34, '255,170,60', 0.8); ptIcon('soul', x, y - 12); }
+      // 사발 (엎어 놓은 잔)
+      ctx.fillStyle = '#6b5a4a'; ctx.beginPath(); ctx.moveTo(x - 46, y - up); ctx.quadraticCurveTo(x - 46, y - 70 - up, x, y - 74 - up); ctx.quadraticCurveTo(x + 46, y - 70 - up, x + 46, y - up); ctx.closePath(); ctx.fill();
+      ctx.fillStyle = '#857260'; ctx.fillRect(x - 50, y - 6 - up, 100, 8);
+      ctx.fillStyle = '#4a3d32'; ctx.fillRect(x - 14, y - 82 - up, 28, 8);
+      if (g.step === 'pick') { ctx.fillStyle = '#ffe8a3'; ctx.font = `bold 16px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText(String(g.pos[i] + 1), x, y + 34); }
+    }
+    ctx.textAlign = 'center'; ctx.font = `bold 18px ${FONT}`; ctx.fillStyle = '#ffe8a3';
+    ctx.fillText(g.step === 'show' ? '혼불이 든 잔을 기억하세요' : g.step === 'shuffle' ? `섞는 중… (${g.left})` : g.step === 'pick' ? '혼불이 든 잔은? (클릭 또는 1 · 2 · 3)' : '', W / 2, 180);
+  },
+};
+
+// --- 2. 범종 치기 ---
+GAMES.bell = {
+  init: () => ({ n: 0, score: 0, x: -1, dir: 1, speed: 1.0, flash: 0, cool: 0, text: '', textT: 0, endT: 0 }),
+  update(g, dt) {
+    g.flash = Math.max(0, g.flash - dt * 1.5); g.cool -= dt; g.textT -= dt;
+    if (g.n >= 5) { g.endT += dt; if (g.endT > 1.3) {
+      const tear = g.score >= 9 ? 4 : g.score >= 7 ? 3 : g.score >= 5 ? 2 : g.score >= 3 ? 1 : 0;
+      miniEnd(tear ? { tear } : {}, tear ? `${g.score}점 · 망자의 눈물 +${tear}` : `${g.score}점 · 종소리가 흐렸다…`, tear > 0);
+    } return; }
+    g.x += g.dir * g.speed * dt;
+    if (g.x > 1) { g.x = 1; g.dir = -1; } if (g.x < -1) { g.x = -1; g.dir = 1; }
+  },
+  strike(g) {
+    if (g.n >= 5 || g.cool > 0) return;
+    const d = Math.abs(g.x);
+    const pts2 = d < 0.06 ? 2 : d < 0.18 ? 1 : 0;
+    g.score += pts2; g.n++; g.speed *= 1.2; g.cool = 0.35; g.flash = pts2 ? 1 : 0.4;
+    g.text = pts2 === 2 ? '완벽!' : pts2 === 1 ? '좋음' : '빗나감'; g.textT = 0.8;
+    if (AC && !muted) { const o = AC.createGain(); o.gain.value = pts2 ? 1 : 0.5; o.connect(master); tone(o, { f: 110, dur: 2.2, vol: 0.2, att: 0.005 }); tone(o, { f: 165, dur: 1.8, vol: 0.08, att: 0.005 }); tone(o, { f: 273, dur: 1.2, vol: 0.05, att: 0.005 }); }
+  },
+  key(g, code) { if (code === 'Space' || code === 'KeyF') this.strike(g); },
+  click(g) { this.strike(g); },
+  draw(g) {
+    ctx.fillStyle = '#120a0c'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#5a1e18'; ctx.fillRect(150, 40, 16, 360); ctx.fillRect(W - 166, 40, 16, 360);
+    VB = 60; giwaRoof(W / 2, 700, 60, 1);
+    // 큰 범종
+    const by = 110, k = g ? g.flash : 0, sway = g ? Math.sin(time * 9) * 3 * k : 0;
+    if (k > 0) for (let i = 0; i < 3; i++) { ctx.strokeStyle = `rgba(255,220,150,${0.5 * k * (1 - i / 3)})`; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(W / 2, by + 110, 120 + i * 40 + (1 - k) * 80, 0, 7); ctx.stroke(); }
+    ctx.save(); ctx.translate(W / 2 + sway, by);
+    ctx.fillStyle = '#3d4a3a'; ctx.beginPath(); ctx.moveTo(-12, 0); ctx.lineTo(12, 0); ctx.lineTo(70, 190); ctx.quadraticCurveTo(0, 210, -70, 190); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#56664e'; ctx.fillRect(-60, 150, 120, 6); ctx.fillRect(-36, 60, 72, 4);
+    ctx.fillStyle = `rgba(255,220,150,${0.5 * k})`; ctx.beginPath(); ctx.arc(0, 130, 16, 0, 7); ctx.fill();
+    ctx.restore();
+    // 당목 (치는 나무)
+    const swing = g ? (g.cool > 0 ? -0.3 : 0.25 + Math.max(0, g.x) * 0.2) : 0.25;
+    ctx.save(); ctx.translate(W / 2 + 230, 230); ctx.rotate(swing); ctx.fillStyle = '#5a4430'; ctx.fillRect(-110, -10, 140, 20); ctx.restore();
+    if (!g) return;
+    // 아래 막대: 가운데 금빛 칸을 맞혀야 한다
+    const bx = W / 2 - 300, bw = 600, byy = 440;
+    ctx.fillStyle = '#2a2024'; ctx.fillRect(bx, byy, bw, 22);
+    ctx.fillStyle = 'rgba(255,240,200,0.25)'; ctx.fillRect(W / 2 - bw * 0.09, byy, bw * 0.18, 22);
+    ctx.fillStyle = 'rgba(255,200,90,0.85)'; ctx.fillRect(W / 2 - bw * 0.03, byy, bw * 0.06, 22);
+    const mx = W / 2 + g.x * bw / 2;
+    ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(mx, byy - 4); ctx.lineTo(mx - 9, byy - 18); ctx.lineTo(mx + 9, byy - 18); ctx.fill(); ctx.fillRect(mx - 1.5, byy, 3, 22);
+    ctx.textAlign = 'center'; ctx.font = `bold 16px ${FONT}`; ctx.fillStyle = '#ffe8a3';
+    ctx.fillText(`${Math.min(g.n + 1, 5)} / 5 번째 · 점수 ${g.score} · Space 또는 클릭`, W / 2, 500);
+    if (g.textT > 0) { ctx.font = `bold 32px ${FONT}`; ctx.fillStyle = g.text === '빗나감' ? '#9a8fb8' : '#ffd43b'; ctx.fillText(g.text, W / 2, 400); }
+  },
+};
+
+// --- 3. 진짜 혼불 찾기 (보스를 잡은 뒤) ---
+GAMES.pond = {
+  init: () => {
+    const items = [];
+    for (let i = 0; i < 10; i++) {
+      let x, y, tries = 0;
+      do { x = 200 + Math.random() * 560; y = 200 + Math.random() * 220; tries++; } while (tries < 50 && items.some(o => Math.hypot(o.x - x, o.y - y) < 70));
+      const a = Math.random() * Math.PI * 2;
+      items.push({ x, y, vx: Math.cos(a) * 70, vy: Math.sin(a) * 50, real: i < 3, picked: false, seed: Math.random() });
+    }
+    return { items, step: 'show', t: 0, picks: 0, hits: 0 };
+  },
+  update(g, dt) {
+    g.t += dt;
+    if (g.step === 'show' && g.t > 1.8) { g.step = 'swim'; g.t = 0; }
+    else if (g.step === 'swim') {
+      for (const o of g.items) {
+        o.x += o.vx * dt; o.y += o.vy * dt;
+        if (o.x < 190 || o.x > 770) o.vx *= -1; if (o.y < 190 || o.y > 430) o.vy *= -1;
+        o.x = clamp(o.x, 190, 770); o.y = clamp(o.y, 190, 430);
+      }
+      if (g.t > 4.5) { g.step = 'pick'; g.t = 0; }
+    } else if (g.step === 'reveal' && g.t > 1.6) {
+      const grudge = g.hits + (g.hits === 3 ? 2 : 0), soul = g.hits * 5;
+      const reward = {}; if (grudge) reward.grudge = grudge; if (soul) reward.soul = soul;
+      miniEnd(reward, g.hits ? `혼불 ${g.hits}개를 찾았다 · 원념 조각 +${grudge}, 혼불 +${soul}` : '전부 눈이었다…', g.hits > 0);
+    }
+  },
+  pickAt(g, x, y) {
+    if (g.step !== 'pick') return;
+    let best = null, bd = 32;
+    for (const o of g.items) { const d = Math.hypot(o.x - x, o.y - y); if (!o.picked && d < bd) { bd = d; best = o; } }
+    if (!best) return;
+    best.picked = true; g.picks++;
+    if (best.real) { g.hits++; sfx(880, 0.2, 'sine', 0.07, 1320); } else sfx(200, 0.3, 'sawtooth', 0.05, 120);
+    if (g.picks >= 3) { g.step = 'reveal'; g.t = 0; }
+  },
+  click(g) { this.pickAt(g, mouse.x, mouse.y); },
+  draw(g) {
+    ctx.fillStyle = '#04080c'; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#081a1f'; ctx.beginPath(); ctx.ellipse(W / 2, 310, 360, 170, 0, 0, 7); ctx.fill();
+    ctx.strokeStyle = 'rgba(120,200,190,0.25)'; ctx.lineWidth = 3; ctx.stroke();
+    for (let i = 0; i < 6; i++) { const a = i + time * 0.1; ctx.fillStyle = '#1e3a2a'; ctx.beginPath(); ctx.ellipse(W / 2 + Math.cos(a) * 320, 310 + Math.sin(a) * 150, 22, 8, 0, 0, 7); ctx.fill(); }
+    if (!g) return;
+    for (const o of g.items) {
+      const show = g.step === 'show' || g.step === 'reveal' || o.picked;
+      if (show && o.real) { warmGlowPlay(o.x, o.y, 30, '255,190,80', 0.8); ptIcon('soul', o.x, o.y); }
+      else if (blinking(o.seed) && !show) continue;
+      else eyeGlow([[o.x - 5, o.y], [o.x + 5, o.y]], !o.real && (o.picked || g.step === 'reveal') ? '255,60,60' : '235,230,255', 2, 1);   // 가짜 눈은 고른 뒤에만 붉어짐
+      if (o.picked && !o.real) { ctx.fillStyle = '#ff8787'; ctx.font = `12px ${FONT}`; ctx.textAlign = 'center'; ctx.fillText('눈이었다!', o.x, o.y - 16); }
+    }
+    ctx.textAlign = 'center'; ctx.font = `bold 18px ${FONT}`; ctx.fillStyle = '#ffe8a3';
+    ctx.fillText(g.step === 'show' ? '금빛 혼불 셋을 기억하세요' : g.step === 'swim' ? '…' : g.step === 'pick' ? `혼불을 골라 클릭하세요 (${3 - g.picks}번 남음)` : '', W / 2, 110);
+  },
+};
+
+// --- 4. 떡 받기 (보스를 잡은 뒤) ---
+GAMES.rice = {
+  init: () => ({ x: W / 2, items: [], t: 0, score: 0, spawn: 0.4, dur: 20, lastMouse: mouse.x, useMouse: true, hurt: 0 }),
+  update(g, dt) {
+    g.t += dt; g.hurt -= dt;
+    if (g.t >= g.dur) { const soul = Math.max(0, g.score * 2); miniEnd(soul ? { soul } : {}, `${g.score}점 · 혼불 +${soul}`, g.score >= 10); return; }
+    const mvx = (keys.KeyD ? 1 : 0) - (keys.KeyA ? 1 : 0);
+    if (mvx) { g.useMouse = false; g.x += mvx * 460 * dt; }
+    if (Math.abs(mouse.x - g.lastMouse) > 2) g.useMouse = true;
+    g.lastMouse = mouse.x;
+    if (g.useMouse && !mvx) g.x += (mouse.x - g.x) * ease(14, dt);
+    g.x = clamp(g.x, 60, W - 60);
+    g.spawn -= dt;
+    if (g.spawn <= 0) {
+      g.spawn = Math.max(0.22, 0.55 - g.t * 0.015);
+      const r = Math.random(), kind = r < 0.7 ? 'cake' : r < 0.82 ? 'gold' : 'skull';
+      g.items.push({ x: 80 + Math.random() * (W - 160), y: -20, vy: 150 + g.t * 9 + Math.random() * 60, kind, rot: Math.random() * 6 });
+    }
+    for (const it of g.items) {
+      it.y += it.vy * dt; it.rot += dt * 2;
+      if (!it.done && it.y > 432 && it.y < 470 && Math.abs(it.x - g.x) < 52) {
+        it.done = true;
+        const v = it.kind === 'cake' ? 1 : it.kind === 'gold' ? 3 : -2;
+        g.score = Math.max(0, g.score + v);
+        if (v < 0) { g.hurt = 0.4; sfx(140, 0.25, 'square', 0.06, 70); } else sfx(it.kind === 'gold' ? 1320 : 880, 0.1, 'sine', 0.06, 1100);
+      }
+    }
+    g.items = g.items.filter(it => !it.done && it.y < H + 30);
+  },
+  draw(g) {
+    ctx.fillStyle = '#0a1214'; ctx.fillRect(0, 0, W, H);
+    for (let i = 0; i < 5; i++) { const x = 100 + i * 190; for (let k = 0; k < 4; k++) { ctx.fillStyle = k % 2 ? '#3d5a55' : '#6b4040'; ctx.fillRect(x - 70 + k * 35, 30, 35, 22); } warmGlowPlay(x, 70, 50, '255,190,110', 0.2); }
+    ctx.fillStyle = '#1e2a2a'; ctx.fillRect(0, 480, W, 60);
+    if (!g) return;
+    for (const it of g.items) {
+      ctx.save(); ctx.translate(it.x, it.y);
+      if (it.kind === 'skull') { ctx.fillStyle = '#e4dfd0'; ctx.beginPath(); ctx.arc(0, 0, 11, 0, 7); ctx.fill(); ctx.fillRect(-6, 6, 12, 7); ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(-4, -1, 3, 0, 7); ctx.arc(4, -1, 3, 0, 7); ctx.fill(); }
+      else { ctx.rotate(Math.sin(it.rot) * 0.3); if (it.kind === 'gold') warmGlowPlay(0, 0, 24, '255,210,90', 0.6); ctx.fillStyle = it.kind === 'gold' ? '#ffd45a' : ['#f4f0e8', '#f0b8c8', '#c8e0a8'][Math.floor(it.rot) % 3]; ctx.beginPath(); ctx.ellipse(0, 0, 13, 9, 0, 0, 7); ctx.fill(); }
+      ctx.restore();
+    }
+    // 바구니
+    const bx = g.x, by = 450;
+    ctx.fillStyle = g.hurt > 0 ? '#8a3a3a' : '#8a6a3a'; ctx.beginPath(); ctx.moveTo(bx - 52, by - 12); ctx.lineTo(bx + 52, by - 12); ctx.lineTo(bx + 40, by + 22); ctx.lineTo(bx - 40, by + 22); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = '#5a4428'; ctx.lineWidth = 2; for (let k = -40; k <= 40; k += 10) { ctx.beginPath(); ctx.moveTo(bx + k, by - 12); ctx.lineTo(bx + k * 0.78, by + 22); ctx.stroke(); }
+    ctx.textAlign = 'left'; ctx.font = `bold 18px ${FONT}`; ctx.fillStyle = '#ffe8a3';
+    ctx.fillText(`점수 ${g.score}`, 30, 110);
+    ctx.textAlign = 'right'; ctx.fillText(`남은 시간 ${Math.ceil(g.dur - g.t)}초`, W - 30, 110);
+  },
+};
+
+// 미니게임 화면: 게임 + (처음 · 끝에는) 설명 창
+function drawMini() {
+  const d = mini.def, G = GAMES[d.id];
+  G.draw(mini.phase === 'play' ? mini.g : mini.phase === 'result' ? mini.g : null);
+  ctx.textAlign = 'left'; ctx.font = `bold 15px ${FONT}`; ctx.fillStyle = '#9ef0e4';
+  ctx.fillText(`${d.place} · ${d.name}`, 20, 30);
+  ctx.textAlign = 'right'; ctx.font = `bold 14px ${FONT}`;
+  let yy = 26; for (const k of ['soul', 'tear', 'grudge']) { ctx.fillStyle = PT_COLORS[k]; ctx.fillText(`${PT_NAMES[k]} ${pts[k]}`, W - 20, yy); yy += 20; }
+  if (mini.phase === 'play') { ctx.textAlign = 'left'; ctx.font = `12px ${FONT}`; ctx.fillStyle = '#7fbfb6'; ctx.fillText('Esc 나가기 (낸 입장료는 돌려받지 못해요)', 20, 50); return; }
+  // 설명 창 / 결과 창
+  ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = 'rgba(10,20,22,0.95)'; ctx.fillRect(130, 80, W - 260, 380);
+  ctx.strokeStyle = 'rgba(126,232,218,0.5)'; ctx.lineWidth = 1.5; ctx.strokeRect(130.5, 80.5, W - 260, 380);
+  ctx.textAlign = 'center';
+  if (mini.phase === 'intro') {
+    ctx.font = `bold 26px ${FONT}`; ctx.fillStyle = '#e6fffb'; ctx.fillText(d.name, W / 2, 128);
+    ctx.textAlign = 'left'; ctx.font = `italic 14px ${FONT}`; ctx.fillStyle = '#bfe'; wrapText(`${d.host}: “${d.line}”`, 160, 165, W - 320, 20);
+    ctx.textAlign = 'left'; ctx.font = `14px ${FONT}`; ctx.fillStyle = '#d8e8e4';
+    d.rules.forEach((r, i) => ctx.fillText('· ' + r, 170, 240 + i * 26));
+    ctx.fillStyle = PT_COLORS.soul; ctx.fillText(`입장료: 혼불 ${d.fee.soul}`, 170, 310);
+    ctx.fillStyle = '#ffd43b'; ctx.fillText(`성공하면: ${d.prize}`, 170, 336);
+  } else {
+    const r = mini.result;
+    ctx.font = `bold 30px ${FONT}`; ctx.fillStyle = r.ok ? '#ffd43b' : '#9a8fb8'; ctx.fillText(r.ok ? '성공!' : '실패…', W / 2, 170);
+    ctx.font = `17px ${FONT}`; ctx.fillStyle = '#e6fffb'; ctx.fillText(r.text, W / 2, 220);
+    const got = Object.entries(r.reward).map(([k, v]) => `${PT_NAMES[k]} +${v}`).join(' · ');
+    ctx.font = `bold 16px ${FONT}`; ctx.fillStyle = '#ffe8a3'; ctx.fillText(got || '받은 것 없음', W / 2, 260);
+  }
+  if (mini.note) { ctx.textAlign = 'center'; ctx.font = `bold 14px ${FONT}`; ctx.fillStyle = '#ff8787'; ctx.fillText(mini.note, W / 2, 378); }
+  for (const b of miniButtons()) {
+    const hover = mouse.x >= b.x && mouse.x <= b.x + b.w && mouse.y >= b.y && mouse.y <= b.y + b.h;
+    ctx.fillStyle = hover ? 'rgba(80,200,190,0.35)' : 'rgba(255,255,255,0.06)'; ctx.fillRect(b.x, b.y, b.w, b.h);
+    ctx.strokeStyle = '#7ee8da'; ctx.strokeRect(b.x + 0.5, b.y + 0.5, b.w, b.h);
+    ctx.textAlign = 'center'; ctx.font = `bold 15px ${FONT}`; ctx.fillStyle = '#e6fffb'; ctx.fillText(b.text, b.x + b.w / 2, b.y + 29);
+  }
+  ctx.font = `12px ${FONT}`; ctx.fillStyle = '#8fb3ae'; ctx.fillText('Space 또는 클릭으로 시작 · Esc 나가기', W / 2, 446 + 8);
+}
+// 마을의 미니게임 문 표시 (떠 있는 작은 간판)
+function drawMiniDoors(near) {
+  for (const d of MINIS) {
+    const x = d.x - acam, y = d.y;
+    if (x < -80 || x > W + 80 || y < acamY - 40 || y - 140 > acamY + H) continue;
+    const lock = miniLocked(d), bob = Math.sin(time * 2 + d.x) * 3;
+    const label = (lock ? '🔒 ' : '놀이 · ') + d.name;
+    ctx.font = `bold 12px ${FONT}`; const lw = ctx.measureText(label).width;
+    ctx.fillStyle = lock ? 'rgba(30,30,40,0.85)' : 'rgba(60,40,10,0.85)'; ctx.fillRect(x - lw / 2 - 8, y - 92 + bob, lw + 16, 20);
+    ctx.strokeStyle = lock ? '#6c6880' : '#ffcf6a'; ctx.lineWidth = 1; ctx.strokeRect(x - lw / 2 - 7.5, y - 91.5 + bob, lw + 15, 19);
+    ctx.textAlign = 'center'; ctx.fillStyle = lock ? '#8f88aa' : '#ffe8a3'; ctx.fillText(label, x, y - 78 + bob);
+    if (!lock) warmGlowPlay(x, y - 82 + bob, 40, '255,200,100', 0.18 + 0.06 * Math.sin(time * 3));
+    if (near === d) {
+      ctx.font = `bold 15px ${FONT}`; ctx.globalAlpha = 0.7 + 0.3 * Math.sin(time * 4);
+      ctx.fillStyle = lock ? '#c3b5ff' : '#ffd43b';
+      ctx.fillText(lock ? '🔒 무명귀를 퇴마하면 열려요' : `[F] 들어가기 · 입장료 혼불 ${d.fee.soul}`, x, y + 26); ctx.globalAlpha = 1;
+    }
+  }
+}
 
 // ===== 그리기: 배경 =====
 let lights = [], glows = [], lateUI = [];   // lateUI: 어둠보다 나중에 그리는 글자 (속성 이름표)
@@ -3373,6 +3706,7 @@ function drawMinimap() {
   for (const c of CITIZENS) dot(c.x, c.y, 'rgba(200,220,215,0.6)', 1.3);
   dot(NPCS[0].x, NPCS[0].y, '#ff6b6b', 2.6); dot(NPCS[1].x, NPCS[1].y, '#4fd1c5', 2.6); dot(NPCS[2].x, NPCS[2].y, '#ffa94d', 2.6);
   dot(PORTAL.x, PORTAL.y, '#ffcf9a', 2.6);
+  for (const d of MINIS) dot(d.x, d.y, miniLocked(d) ? '#6c6880' : '#ffd43b', 2.2);   // 미니게임
   if (Math.floor(time * 3) % 2) dot(AP.x, AP.y, '#ffffff', 3);
   ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.strokeRect(mx + acam * s, my + acamY * s, W * s, H * s);   // 지금 보이는 곳
 }
@@ -3404,8 +3738,9 @@ function drawAfterlife() {
   for (const c of CITIZENS) list.push({ y: c.y, f: () => drawCitizen(c) });
   list.push({ y: AP.y, f: () => drawPlayer(AP.x - acam, AP.y, AP.view) });
   list.sort((a, b) => a.y - b.y).forEach(o => o.f());
-  // 가까이 있는 상대 안내
-  if (near) {
+  drawMiniDoors(near);
+  // 가까이 있는 상대 안내 (미니게임 문은 drawMiniDoors 에서)
+  if (near && !near.fee) {
     let tx, ty, text, col = '#9ef0e4';
     if (near === 'portal') { tx = PORTAL.x; ty = PORTAL.y + 26; text = bossDone ? '[F] 저승길로 (엔드리스)' : '[F] 이승으로 돌아가기'; col = '#ffcf9a'; }
     else if (typeof near === 'string') { const n = NPCS.find(o => o.id === near); tx = n.x; ty = n.y + 26; text = '[F] 말 걸기'; }
@@ -3439,7 +3774,8 @@ let last = performance.now();
 function loop(now) {
   const dt = Math.min(0.05, (now - last) / 1000); last = now;
   update(dt);
-  if (state === 'afterlife') { if (!menu) updateAfterlife(dt); drawAfterlife(); }
+  if (state === 'mini') { if (!menu) updateMini(dt); drawMini(); }
+  else if (state === 'afterlife') { if (!menu) updateAfterlife(dt); drawAfterlife(); }
   else {
     drawWorld();
     if (state === 'play' || state === 'dead') drawHUD();

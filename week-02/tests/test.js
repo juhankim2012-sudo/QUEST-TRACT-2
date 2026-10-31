@@ -185,6 +185,61 @@ test('4-4. R 키: 마을 어디서든 이승으로 가는 문 앞으로 바로 �
   check(warp === 0 && chat !== null, '시민과 대화 중에는 R 이 안 먹힘 (대화가 먼저)');
 `);
 
+test('4-5. 사후세계 미니게임', `
+  const go = id => { const d = MINIS.find(x => x.id === id); AP.x = d.x; AP.y = d.y; return d; };
+  const playUntil = (cond, sec = 20) => { for (let i = 0; i < sec * 60 && !cond(); i++) frame(); };
+  reset(); enterAfterlife(); pts.soul = 0;
+  check(MINIS.every(d => { AP.x = d.x; AP.y = d.y; return nearAfter() === d; }), '미니게임 문 4곳 앞에서 들어갈 수 있음');
+  // 잠긴 미니게임
+  go('pond'); onKey('KeyF'); check(state === 'afterlife', '보스를 잡기 전에는 「진짜 혼불 찾기」가 잠겨 있음');
+  go('rice'); onKey('KeyF'); check(state === 'afterlife', '보스를 잡기 전에는 「떡 받기」가 잠겨 있음');
+  // 입장료가 모자라면 시작 못 함
+  go('cups'); onKey('KeyF'); check(state === 'mini' && mini.phase === 'intro', '주막 문 앞에서 F → 술잔 돌리기 화면 (설명부터)');
+  onKey('Space'); check(mini.phase === 'intro' && mini.note.length > 0, '혼불이 모자라면 시작 안 됨');
+  // 술잔 돌리기: 맞히면 +30
+  pts.soul = 100; onKey('Space'); check(mini.phase === 'play' && pts.soul === 90, '시작하면 입장료 혼불 10 을 냄');
+  playUntil(() => mini.g.step === 'pick');
+  const g = mini.g; onKey('Digit' + (g.pos[g.ball] + 1));
+  playUntil(() => mini.phase === 'result');
+  check(mini.result.ok && pts.soul === 120, '잔이 섞인 뒤 혼불이 든 잔을 고르면 혼불 +30 (90 → ' + pts.soul + ')');
+  onKey('Space'); playUntil(() => mini.g.step === 'pick');
+  const g2 = mini.g; onKey('Digit' + (((g2.pos[g2.ball] + 1) % 3) + 1));
+  playUntil(() => mini.phase === 'result');
+  check(!mini.result.ok && pts.soul === 110, '빈 잔을 고르면 입장료만 잃음');
+  const ax = AP.x; onKey('Escape'); check(state === 'afterlife' && AP.x === ax, 'Esc → 마을로 (있던 자리 그대로)');
+  // 범종 치기: 다섯 번 모두 한가운데
+  go('bell'); onKey('KeyF'); onKey('Space'); const tear0 = pts.tear;
+  for (let i = 0; i < 5; i++) { mini.g.x = 0; mini.g.cool = 0; onKey('Space'); frame(); }
+  playUntil(() => mini.phase === 'result');
+  check(mini.result.ok && pts.tear - tear0 === 4, '범종 치기: 다섯 번 모두 한가운데 → 망자의 눈물 +4');
+  onKey('Space'); for (let i = 0; i < 5; i++) { mini.g.x = 0.9; mini.g.cool = 0; onKey('Space'); frame(); }
+  playUntil(() => mini.phase === 'result');
+  check(!mini.result.ok, '범종 치기: 다 빗나가면 실패');
+  onKey('Escape');
+  // 보스를 잡으면 나머지 둘이 열린다
+  bossDone = true; pts.soul = 100;
+  go('pond'); onKey('KeyF'); check(state === 'mini', '보스를 잡은 뒤에는 「진짜 혼불 찾기」가 열림');
+  onKey('Space'); const gr0 = pts.grudge;
+  playUntil(() => mini.g.step === 'pick');
+  for (const o of mini.g.items.filter(o => o.real)) { mouse.x = o.x; mouse.y = o.y; miniClick(); }
+  playUntil(() => mini.phase === 'result');
+  check(pts.grudge - gr0 === 5, '진짜 혼불 셋을 다 찾으면 원념 조각 +5 (1 × 3 + 보너스 2)');
+  onKey('Escape');
+  go('rice'); onKey('KeyF'); check(state === 'mini', '보스를 잡은 뒤에는 「떡 받기」가 열림');
+  onKey('Space'); const s0 = pts.soul;
+  // 떡만 골라서 받는다 (해골은 피함)
+  for (let i = 0; i < 21 * 60 && mini.phase === 'play'; i++) {
+    const cake = mini.g.items.filter(it => it.kind !== 'skull' && it.y < 450).sort((a, b) => b.y - a.y)[0];
+    if (cake) { mouse.x = cake.x; mini.g.x = cake.x; }
+    frame();
+  }
+  check(mini.phase === 'result' && mini.result.ok && pts.soul > s0, '떡 받기: 떡을 받으면 점수 × 2 혼불 (+' + (pts.soul - s0) + ')');
+  let ok = true; for (const d of MINIS) { mini = { def: d, phase: 'intro', t: 0, g: null, note: '' }; state = 'mini'; try { drawMini(); } catch (e) { ok = false; console.log(e); } }
+  leaveMini(); drawAfterlife();
+  check(ok, '미니게임 화면과 마을의 문 간판이 오류 없이 그려짐');
+  bossDone = false;
+`);
+
 test('5. 뒤에 몬스터가 있으면 카메라가 뒤로 감', `
   reset(); let c = cam.x; keys.KeyA = true; run(2); keys.KeyA = false;
   check(cam.x === c, '몬스터가 없으면 카메라가 뒤로 안 감');
