@@ -124,7 +124,7 @@ let drops, natT;   // 바닥에 떨어진 포인트, 저절로 생기는 포인�
 // 구간(등불과 다음 등불 사이)마다 나오는 몬스터 수는 정해져 있다. 뒤 구간일수록 많다 (강한 몬스터는 따로)
 let segSpawned;
 const segOf = x => Math.floor(x / SAVE_GAP);
-const segQuota = s => 15 + 8 * s;
+const segQuota = s => 12 + 6 * s;   // 1구간 12, 2구간 18, 3구간 24 … (예전 15 + 8 × 구간 에서 약 20% 줄임)
 const segLeft = s => Math.max(0, segQuota(s) - (segSpawned[s] || 0));
 
 function newGame() {
