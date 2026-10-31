@@ -173,7 +173,7 @@ cv.addEventListener('mousedown', e => {
   toCanvas(e); initAudio();
   if (menu) { menuClick(); return; }   // 설정 창이 열려 있으면 창 안의 버튼만
   if (state === 'title') { newGame(); state = 'play'; msg('저승길이 열렸다…', 2.5); return; }
-  if (state === 'dead') { respawn(); return; }
+  if (state === 'dead') { deadClick(); return; }
   if (state === 'ending') {
     if (endingChoicesShown()) ENDING_BTNS.forEach((b, i) => { if (mouse.x > b.x && mouse.x < b.x + b.w && mouse.y > b.y && mouse.y < b.y + b.h) endingChoose(i); });
     return;
@@ -1072,6 +1072,15 @@ function update(dt) {
     P.x += 70 * dt; P.moving = true; stepWalk(70 / P.speed, dt); cam.x = P.x - W * 0.38;
     return;
   }
+  if (state === 'dead') {
+    // 죽은 화면: 잠깐 보여 준 뒤 저절로 다시 시작. 그동안 혼이 위로 빠져나간다
+    deadT += dt;
+    if (deadT < 1.6 && Math.random() < dt * 30) parts.push({ x: P.x + (Math.random() - 0.5) * 20, y: P.y - 20 - Math.random() * 20, vx: (Math.random() - 0.5) * 20, vy: -50 - Math.random() * 50, t: 1.6, max: 1.6, color: '#e7f5ff', size: 2 + Math.random() * 2, glow: true });
+    parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.t -= dt; }); parts = parts.filter(p => p.t > 0);
+    texts.forEach(t => { t.y -= 30 * dt; t.t -= dt; }); texts = texts.filter(t => t.t > 0);
+    if (deadT >= DEAD_AUTO) respawn();
+    return;
+  }
   if (state === 'ending') { ending.t += dt; parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.t -= dt; }); parts = parts.filter(p => p.t > 0); return; }
   if (state !== 'play') return;
 
@@ -1327,7 +1336,7 @@ function update(dt) {
   parts.forEach(p => { p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 40 * dt; p.t -= dt; }); parts = parts.filter(p => p.t > 0);
   texts.forEach(t => { t.y -= 30 * dt; t.t -= dt; }); texts = texts.filter(t => t.t > 0);
 
-  if (P.hp <= 0) { P.hp = 0; state = 'dead'; mouse.down = false; sfx(110, 1.5, 'sine', 0.15, 40); }
+  if (P.hp <= 0) { P.hp = 0; state = 'dead'; deadT = 0; mouse.down = false; sfx(110, 1.5, 'sine', 0.15, 40); }
 }
 
 // ===== 최종 보스: 무명귀 (이름을 먹는 악귀) =====
@@ -2497,7 +2506,14 @@ function drawWorld() {
   drawBossArena();
   drawBossGround();
   const list = mons.map(m => ({ y: m.y, f: () => drawMonster(m) }));
-  list.push({ y: P.y, f: () => drawPlayer(P.x - cam.x, P.y) });
+  list.push({ y: P.y, f: () => {
+    if (state !== 'dead') return drawPlayer(P.x - cam.x, P.y);
+    // 죽으면 옆으로 천천히 쓰러지고 흐려진다
+    const k = Math.min(1, deadT / 0.7), px = P.x - cam.x;
+    ctx.save(); ctx.globalAlpha = 1 - Math.min(0.6, deadT * 0.25);
+    ctx.translate(px, P.y); ctx.rotate(-(Math.cos(P.drawA) >= 0 ? 1 : -1) * k * Math.PI / 2 * 0.95); ctx.translate(-px, -P.y);
+    drawPlayer(px, P.y); ctx.restore();
+  } });
   list.sort((a, b) => a.y - b.y).forEach(o => o.f());
   drawBossTop();
   drawDrops();
@@ -2633,13 +2649,25 @@ function drawTitle() {
   ctx.font = `bold 18px ${FONT}`; ctx.fillStyle = `rgba(255,220,150,${0.6 + 0.4 * Math.sin(time * 3)})`;
   ctx.fillText('클릭해서 시작', W / 2, 432);
 }
+// 죽은 화면: DEAD_LOCK 초 동안은 눌러도 안 넘어가고, DEAD_AUTO 초가 되면 저절로 다시 시작
+const DEAD_LOCK = 2, DEAD_AUTO = 3.5;
+let deadT = 0;
+function deadClick() { if (deadT >= DEAD_LOCK) respawn(); }   // 죽은 직후 잠깐은 눌러도 안 넘어감
 function drawDead() {
-  ctx.fillStyle = 'rgba(10,0,5,0.65)'; ctx.fillRect(0, 0, W, H);
+  const fade = Math.min(1, deadT / 0.8);
+  ctx.fillStyle = `rgba(30,0,8,${0.7 * fade})`; ctx.fillRect(0, 0, W, H);
+  const v = ctx.createRadialGradient(W / 2, H / 2, H * 0.2, W / 2, H / 2, W * 0.6);
+  v.addColorStop(0, 'rgba(0,0,0,0)'); v.addColorStop(1, `rgba(0,0,0,${0.6 * fade})`); ctx.fillStyle = v; ctx.fillRect(0, 0, W, H);
   ctx.textAlign = 'center';
+  ctx.globalAlpha = clamp((deadT - 0.3) / 0.8, 0, 1);
   ctx.font = `bold 40px ${FONT}`; ctx.fillStyle = '#d6334a'; ctx.fillText('혼이 흩어졌다…', W / 2, 230);
   ctx.font = `15px ${FONT}`; ctx.fillStyle = '#ccc';
-  ctx.fillText(`${Math.floor(P.x / 10)} m 까지 왔다`, W / 2, 270);
-  ctx.fillText(`클릭하면 마지막 등불에서 다시 시작 (혼불 30% 잃음)`, W / 2, 300);
+  ctx.fillText(`${Math.floor(P.x / 10)} m 까지 왔다 · 마지막 등불에서 다시 시작 (혼불 30% 잃음)`, W / 2, 270);
+  ctx.globalAlpha = 1;
+  if (deadT >= DEAD_LOCK) {
+    ctx.font = `bold 15px ${FONT}`; ctx.fillStyle = `rgba(255,220,150,${0.6 + 0.4 * Math.sin(time * 4)})`;
+    ctx.fillText(`클릭하면 바로 다시 시작 · ${Math.ceil(DEAD_AUTO - deadT)}초 뒤 저절로`, W / 2, 310);
+  }
 }
 
 // ===== 사후세계 그리기 =====

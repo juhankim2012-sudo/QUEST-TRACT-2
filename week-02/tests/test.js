@@ -355,6 +355,17 @@ test('8-2. 영력 충전 속도: 평소 1초에 5, 세이브 포인트 안에서
   check(Math.abs(P.sp - 15) < 0.4, '세이브 포인트 안: 1초 동안 영력 ' + P.sp.toFixed(1) + ' 참');
 `);
 
+test('8-3. 죽은 화면: 잠깐 보여 주고 다시 시작', `
+  reset(); P.hp = 1; P.inv = 0; damagePlayer(5, null); update(1 / 60);
+  check(state === 'dead', '체력이 0 이 되면 죽은 화면');
+  deadClick(); check(state === 'dead', '죽은 직후에는 클릭해도 바로 안 살아남 (공격하던 클릭으로 갑자기 부활하지 않게)');
+  run(1.5); deadClick(); check(state === 'dead', '1.5초 뒤에도 아직 죽은 화면');
+  drawWorld(); drawHUD(); drawDead(); check(true, '죽은 화면을 그려도 오류 없음 (쓰러지는 모습·떠오르는 혼)');
+  run(0.6); deadClick(); check(state === 'play', '2초가 지나면 클릭해서 바로 다시 시작');
+  reset(); P.hp = 1; P.inv = 0; damagePlayer(5, null); update(1 / 60); run(3.6);
+  check(state === 'play' && P.hp === P.maxHp, '클릭하지 않아도 3.5초 뒤 저절로 다시 시작');
+`);
+
 test('9. 몬스터는 구간마다 정해진 수만큼만 나옴', `
   for (const s of [0, 1, 3]) {
     reset(); spawnT = 0; P.x = s * SAVE_GAP + SAVE_W + 400; cam.x = P.x - W * 0.38;
