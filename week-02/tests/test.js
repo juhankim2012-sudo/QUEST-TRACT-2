@@ -61,7 +61,7 @@ test('1. 게임이 켜지고 시작됨', `
 `);
 
 test('2. 몬스터 공격 동작 (준비 → 공격 → 숨 고르기)', `
-  for (const type of Object.keys(MON).filter(t => t !== 'boss')) {   // 보스는 12번에서 따로
+  for (const type of Object.keys(MON).filter(t => MON[t].atk)) {   // 보스들은 따로 시험
     reset(); const m = spawnMonster(type, P.x + 40, P.y); m.fade = 1;
     let firstHit = -1;
     for (let i = 0; i < 180; i++) { const hp = P.hp; update(1 / 60); if (P.hp < hp && firstHit < 0) firstHit = i / 60; }
@@ -639,20 +639,108 @@ if (!DEV_CODE) console.log('\n■ 14. 제작자 코드\n     (DEV_CODE 를 알�
 else test('14. 제작자 코드', `
   const CODE = ${JSON.stringify(DEV_CODE)};
   const typeCode = s => { for (const ch of s) onKey('Digit' + ch); };
+  // 코드를 치면 고르기 창이 열리고, 게임이 멈춘다
   for (const st of ['title', 'play', 'afterlife']) {
     newGame(); state = st === 'title' ? 'title' : 'play'; if (st === 'afterlife') { P.x = 2400 + 160; enterAfterlife(); }
     typeCode(CODE);
-    check(state === 'play' && lastSave === BOSS_SAVE && zoneAt(P.x) === BOSS_SAVE, (st === 'title' ? '제목 화면' : st === 'play' ? '게임 중' : '사후세계') + '에서 코드 입력 → 보스 바로 앞 등불로 이동');
+    check(devMenu === true, (st === 'title' ? '제목 화면' : st === 'play' ? '게임 중' : '사후세계') + '에서 코드 입력 → 고르기 창이 열림');
+    devMenu = false;
   }
-  check(W_ORDER.every(id => owned[id] && wlv[id] === 5) && pts.soul >= 9999 && pts.tear >= 9999 && pts.grudge >= 9999 && P.maxHp === 200 && P.maxSp === 200, '무기 4개 모두 +5, 포인트 9999, 체력·영력 최대');
-  check(['light', 'barrier', 'scream', 'charge'].every(id => learned[id]), '스킬 4개 모두 배움');
+  newGame(); state = 'play'; typeCode(CODE); const x0 = P.x; keys.KeyD = true; run(1); keys.KeyD = false;
+  check(P.x === x0, '고르기 창이 열려 있으면 게임이 멈춤');
+  drawWorld(); drawHUD(); drawDevMenu(); check(true, '고르기 창이 오류 없이 그려짐');
+  onKey('Escape'); check(!devMenu && lastSave === 0 && pts.soul === 0, 'Esc → 아무것도 안 하고 닫힘');
+  // 1. 포인트만 충전
+  newGame(); state = 'play'; P.x = 900; cam.x = P.x - W * 0.38; typeCode(CODE); onKey('Digit1');
+  check(pts.soul === 9999 && pts.tear === 9999 && pts.grudge === 9999 && P.x === 900 && !owned.vajra && wlv.dagger === 0, '1. 포인트만 9999, 자리와 강화는 그대로');
+  // 2. 보스 바로 전으로
+  newGame(); state = 'title'; typeCode(CODE); onKey('Digit2');
+  check(state === 'play' && lastSave === BOSS_SAVE && zoneAt(P.x) === BOSS_SAVE, '2. 보스 바로 앞 등불로 이동 (제목 화면에서도)');
+  check(W_ORDER.every(id => owned[id] && wlv[id] === 5) && pts.soul >= 9999 && P.maxHp === 200 && P.maxSp === 200, '   무기 4개 모두 +5, 포인트 9999, 체력·영력 최대');
+  check(['light', 'barrier', 'scream', 'charge'].every(id => learned[id]), '   스킬 4개 모두 배움');
   keys.KeyD = true; for (let i = 0; i < 600 && !boss; i++) update(1 / 60); keys.KeyD = false;
-  check(!!boss, '앞으로 걸어가면 바로 보스');
-  newGame(); state = 'play'; const x0 = P.x; typeCode(CODE.slice(0, 7) + ((+CODE[7] + 1) % 10));
-  check(P.x === x0 && lastSave === 0, '틀린 숫자는 아무 일도 안 일어남');
+  check(!!boss, '   앞으로 걸어가면 바로 보스');
+  // 3. 보스를 잡은 뒤로
+  newGame(); state = 'play'; P.x = 2400 + 160; enterAfterlife(); typeCode(CODE); mouse.x = devBtn(2).x + 10; mouse.y = devBtn(2).y + 10; devClick();
+  check(state === 'play' && bossDone && P.x > BX1 && uniques.mask, '3. (사후세계에서 클릭으로) 무명귀를 잡은 것으로 하고 남문 너머로, 「무명귀의 가면」 받음');
+  check(MINIS.every(d => !miniLocked(d)), '   미니게임 4개 모두 열림');
+  keys.KeyD = true; for (let i = 0; i < 60 * 25 && !eboss; i++) { update(1 / 60); P.hp = P.maxHp; } keys.KeyD = false;
+  check(!!eboss, '   앞으로 걸어가면 엔드리스 보스가 나옴');
+  newGame(); state = 'play'; const x1 = P.x; typeCode(CODE.slice(0, 7) + ((+CODE[7] + 1) % 10));
+  check(!devMenu && P.x === x1, '틀린 숫자는 아무 일도 안 일어남');
   newGame(); state = 'play'; typeCode('999' + CODE);
-  check(lastSave === BOSS_SAVE, '앞에 다른 숫자를 쳤어도 마지막 8자리가 맞으면 됨');
+  check(devMenu, '앞에 다른 숫자를 쳤어도 마지막 8자리가 맞으면 됨'); devMenu = false;
   check(!${JSON.stringify(['exorcist.html', 'tests/test.js'].some(f => require('fs').readFileSync(require('path').join(__dirname, '..', f), 'utf8').includes(DEV_CODE)))}, '게임 파일과 시험 파일에 코드 숫자가 그대로 적혀 있지 않음 (공개 저장소)');
+`);
+
+test('12-2. 엔드리스 보스 (그림자 퇴마사 · 야행귀)', `
+  const toEndless = () => { reset(); bossDone = true; lastSave = BOSS_SAVE; P.x = EBOSS_FIRST - 200; P.y = 390; cam.x = P.x - W * 0.38; spawnT = 1e9; natT = 1e9; };
+  const calm = m => { mons = mons.filter(o => o === m); bshots = []; ebombs = []; m.act = null; m.cd = 99; m.intro = 0; P.inv = 0; P.hp = P.maxHp; P.vx = P.vy = 0; };
+  reset(); P.x = EBOSS_FIRST + 500; cam.x = P.x - W * 0.38; update(1 / 60);
+  check(!eboss, '무명귀를 잡기 전에는 엔드리스 보스가 안 나옴');
+  toEndless(); keys.KeyD = true; for (let i = 0; i < 900 && !eboss; i++) update(1 / 60); keys.KeyD = false;
+  check(eboss && !arenaHasZone(ebossX0), '싸우는 칸 안에 세이브 지역(등불)이 없음 (안전지대로 숨을 수 없게)');
+  check(eboss && eboss.type === 'shadowex', '엔드리스에서 남문 너머 ' + Math.round((EBOSS_FIRST - BX1) / 10) + 'm 쯤 → 첫 보스 「그림자 퇴마사」');
+  const hp0 = eboss.hp; hurt(eboss, 50, 0, 0, 0, 'vajra'); check(eboss.hp === hp0, '나타나는 연출 중에는 안 맞음');
+  run(2); keys.KeyD = true; run(3); keys.KeyD = false;
+  check(P.x <= ebossX0 + W - 30 && Math.abs(cam.x - ebossX0) < 5, '싸우는 동안 화면 한 칸 안에 갇힘');
+  check(mons.filter(m => !m.elite && m.type !== 'shadowclone').length === 0, '싸우는 동안 다른 몬스터는 안 나옴');
+  // 베기: 준비 동작 뒤에 맞고, 그 사이 피하면 안 맞음
+  const sx = eboss;
+  const slash = dodge => { calm(sx); P.x = sx.x - 90; P.y = sx.y; ebAct(sx, 'slash', [0.45, 0.12, 0.4]); let hit = false, early = false;
+    for (let i = 0; i < 90 && sx.act; i++) { const h = P.hp; if (dodge && sx.act.phase === 'wind') keys.KeyA = true; update(1 / 60); keys.KeyA = false; if (P.hp < h) { hit = true; if (sx.act && sx.act.phase === 'wind') early = true; } } return { hit, early }; };
+  const s1 = slash(false), s2 = slash(true);
+  check(s1.hit && !s1.early && !s2.hit, '그림자 퇴마사 베기: 준비 동작이 끝나야 맞고, 그 사이 피하면 안 맞음');
+  calm(sx); P.x = sx.x - 300; ebAct(sx, 'tal', [0.5, 0.1, 0.5]); run(0.6);
+  check(bshots.filter(s => s.kind === 'tal').length === 3, '부적 3장을 던짐');
+  calm(sx); sx.hp = sx.maxHp * 0.45; update(1 / 60);
+  const clones = mons.filter(m => m.type === 'shadowclone');
+  check(clones.length === 2, '체력이 반 아래로 → 분신 둘');
+  const before = { ...pts }; for (const c of clones) hurt(c, 1, 0, 0, 0, 'dagger');
+  check(mons.filter(m => m.type === 'shadowclone' && !m.dead).length === 0 && pts.soul === before.soul && drops.filter(d => d.type !== 'life').length === 0, '분신은 한 대만 맞으면 사라지고 아무것도 안 떨어뜨림');
+  sx.hp = 1; sx.intro = 0; hurt(sx, 10, 0, 0, 0, 'vajra');
+  check(!eboss && nextEboss > P.x + 4000, '그림자 퇴마사 퇴마 → 다음 보스는 480m 뒤');
+  check(uniques && drops.length > 0, '엔드리스 보스는 포인트를 많이 떨어뜨림');
+  // 두 번째: 야행귀
+  P.x = nextEboss + 50; cam.x = P.x - W * 0.38; update(1 / 60);
+  check(eboss && eboss.type === 'yahaeng', '다음 엔드리스 보스는 「야행귀」 (번갈아 나옴)');
+  const yh = eboss; run(2); calm(yh);
+  P.x = yh.x - 260; P.y = yh.y; const d0 = Math.abs(P.x - yh.x); ebAct(yh, 'inhale', [0.6, 1.6, 0.6]); run(1.4);
+  check(Math.abs(P.x - yh.x) < d0 - 80, '야행귀가 빛을 빨아들이며 나를 끌어당김 (' + Math.round(d0) + ' → ' + Math.round(Math.abs(P.x - yh.x)) + ')');
+  calm(yh); ebAct(yh, 'summon', [0.8, 0.1, 0.8]); run(1);
+  check(mons.filter(m => !m.elite).length === 3, '행렬 귀신 3마리를 부름');
+  calm(yh); P.x = yh.x - 300; P.y = 400; ebAct(yh, 'bombs', [0.6, 0.1, 0.9]); run(0.7);
+  const b0 = ebombs[0]; ebombs = [b0]; P.x = b0.x; P.y = b0.y; run(0.2); P.inv = 0; const hpB = P.hp; P.x = b0.x; P.y = b0.y;
+  for (let i = 0; i < 90 && ebombs.length; i++) { P.x = b0.x; P.y = b0.y; update(1 / 60); }
+  check(P.hp < hpB, '불붙은 등롱이 떨어진 자리에 서 있으면 맞음');
+  calm(yh); P.x = yh.x - 300; P.y = 400; ebAct(yh, 'bombs', [0.6, 0.1, 0.9]); run(0.7); const b1 = ebombs[0]; ebombs = [b1];
+  const hpC = P.hp; P.x = b1.x + 200; for (let i = 0; i < 90 && ebombs.length; i++) update(1 / 60);
+  check(P.hp === hpC, '표시된 자리에서 비키면 안 맞음');
+  let ok = true; try { drawWorld(); drawHUD(); } catch (e) { ok = false; console.log(e); } check(ok, '엔드리스 보스 화면이 오류 없이 그려짐');
+  // 진짜 브라우저는 숫자가 아닌 값(NaN)으로 그리면 멈춘다. 모든 몬스터의 위치·방향이 진짜 숫자인지 확인
+  toEndless(); P.x = EBOSS_FIRST + 600; cam.x = P.x - W * 0.38; for (let i = 0; i < 400 && !eboss; i++) update(1 / 60);
+  if (eboss) { eboss.intro = 0; eboss.hp = eboss.maxHp * 0.45; run(3); }
+  const bad = mons.filter(m => ![m.x, m.y, m.fs ?? 0, m.amp ?? 0, m.hover ?? 0].every(Number.isFinite));
+  check(mons.some(m => m.type === 'shadowclone') && bad.length === 0, '분신까지 모든 몬스터의 위치·방향 값이 정상 (' + mons.length + '마리 중 이상한 값 ' + bad.length + ')');
+  // 엔드리스 보스와 싸우다 죽으면 조금 뒤 다시 나옴
+  P.hp = 0; update(1 / 60); respawn();
+  check(!eboss && nextEboss > P.x && nextEboss < P.x + 2000, '죽으면 엔드리스 보스는 사라지고 조금 앞에서 다시 나옴');
+`);
+
+test('12-3. 게임 설명 창 · 도감 이야기', `
+  newGame(); state = 'title';
+  // 제목 화면 클릭 → 설명 창 → 시작
+  state = 'howto'; drawWorld(); drawHowto(); check(true, '게임 설명 창이 오류 없이 그려짐');
+  onKey('KeyD'); check(state === 'howto', '설명 창에서는 다른 키로 시작되지 않음');
+  onKey('Space'); check(state === 'play', '설명 창에서 Space → 게임 시작');
+  check(HELP_SECTIONS.map(s => s[0]).join(',') === '이야기,조작,진행,요령', '설명 창: 이야기 · 조작 · 진행 · 요령');
+  openMenu(); onKey('Tab'); onKey('Tab'); check(menu.tab === 'help', 'Esc 메뉴에서 Tab 두 번 → 도움말');
+  let ok = true; try { drawMenu(); } catch (e) { ok = false; } check(ok, '도움말 탭이 오류 없이 그려짐'); closeMenu();
+  check(CODEX_ORDER.every(t => CODEX_STORY[t] && CODEX_STORY[t].includes('핼로윈')), '도감의 모든 몬스터에 핼로윈 이야기가 있음 (' + CODEX_ORDER.length + '종)');
+  check(CODEX_ORDER.includes('shadowex') && CODEX_ORDER.includes('yahaeng') && !CODEX_ORDER.includes('shadowclone'), '도감에 엔드리스 보스 둘이 있고, 분신은 따로 없음');
+  for (const t of CODEX_ORDER) codex.seen[t] = true;
+  openMenu('codex'); ok = true; for (let i = 0; i < CODEX_ORDER.length; i++) { menu.sel = i; try { drawMenu(); } catch (e) { ok = false; console.log(e); } } closeMenu();
+  check(ok, '도감 12칸 (이야기 포함) 모두 오류 없이 그려짐');
 `);
 
 test('11. 10분 자동 플레이 (오류가 안 나는지)', `
