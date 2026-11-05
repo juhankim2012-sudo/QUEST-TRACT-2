@@ -29,6 +29,13 @@
     색 개수: <input id="colorCount" type="range" min="1" max="8" value="5" style="vertical-align:middle">
     <b id="colorCountText">5</b>개
   </div>
+  <div style="margin-bottom:8px">
+    <button id="toggleOrg">미생물 표시 끄기</button>
+    미생물: <b id="orgCount">0</b>마리<br>
+    최소 크기: <input id="minSize" type="range" min="5" max="60" value="15" style="vertical-align:middle">
+    구슬 <b id="minSizeText">15</b>개 이상
+    <div id="typeList" style="margin-top:6px; line-height:1.6"></div>
+  </div>
   <div id="tableBox">
     <table id="rules"></table>
     <div id="help">
@@ -47,6 +54,7 @@ const COUNT = 1200;      // 구슬 개수
 const R_MAX = 80;        // 이 거리 안에 있는 구슬끼리만 서로 영향을 줌
 const FRICTION = 0.85;   // 속도가 줄어드는 정도 (1에 가까울수록 미끄러움)
 const FORCE = 0.6;       // 끌림/밀림 세기
+const MAX_SPEED = 5;     // 구슬 최고 속도
 const STEPS = [-1, -0.5, 0, 0.5, 1]; // 칸을 누를 때 바뀌는 값
 
 const canvas = document.getElementById('c');
@@ -126,6 +134,9 @@ function step() {
     }
     vx[i] = vx[i] * FRICTION + fx * FORCE;
     vy[i] = vy[i] * FRICTION + fy * FORCE;
+    // 너무 빨라지지 않게 (구슬이 많이 뭉치면 힘이 엄청 커져서 튀어 나가는 것 막기)
+    const sp = Math.hypot(vx[i], vy[i]);
+    if (sp > MAX_SPEED) { vx[i] *= MAX_SPEED / sp; vy[i] *= MAX_SPEED / sp; }
   }
 
   for (let i = 0; i < COUNT; i++) {
@@ -150,7 +161,184 @@ function draw() {
   }
 }
 
-function loop() { step(); draw(); requestAnimationFrame(loop); }
+// ===== 미생물 찾기 =====
+// 서로 LINK 거리 안에 붙어 있는 구슬들을 사슬처럼 이어서 한 무리로 봄.
+// 무리의 구슬 수가 최소 크기 이상이면 "미생물 한 마리"로 표시함.
+const LINK = 16;          // 이 거리 안이면 붙어 있다고 봄
+let MIN_SIZE = 15;        // 미생물이 되려면 필요한 구슬 수
+let showOrganisms = true;
+let organisms = [];       // 지금 찾은 미생물들 {id, x, y, r, vx, vy, size}
+let nextId = 1;
+let frame = 0;
+
+function findOrganisms() {
+  // 1) 구슬마다 "대장"을 기억하는 표 (처음엔 자기 자신이 대장)
+  const parent = new Int32Array(COUNT);
+  for (let i = 0; i < COUNT; i++) parent[i] = i;
+  const root = i => { while (parent[i] !== i) { parent[i] = parent[parent[i]]; i = parent[i]; } return i; };
+  const join = (a, b) => { a = root(a); b = root(b); if (a !== b) parent[a] = b; };
+
+  // 2) 가까운 구슬끼리 같은 무리로 묶기 (격자로 나눠서 근처만 확인)
+  const cols = Math.max(1, Math.floor(W / LINK));
+  const rows = Math.max(1, Math.floor(H / LINK));
+  const cw = W / cols, ch = H / rows;
+  const grid = Array.from({ length: cols * rows }, () => []);
+  const cellOf = new Int32Array(COUNT * 2);
+  for (let i = 0; i < COUNT; i++) {
+    const gx = Math.min(cols - 1, Math.floor(px[i] / cw));
+    const gy = Math.min(rows - 1, Math.floor(py[i] / ch));
+    cellOf[i * 2] = gx; cellOf[i * 2 + 1] = gy;
+    grid[gy * cols + gx].push(i);
+  }
+  for (let i = 0; i < COUNT; i++) {
+    const gx = cellOf[i * 2], gy = cellOf[i * 2 + 1];
+    for (let oy = -1; oy <= 1; oy++) for (let ox = -1; ox <= 1; ox++) {
+      for (const j of grid[((gy + oy + rows) % rows) * cols + ((gx + ox + cols) % cols)]) {
+        if (j <= i) continue;
+        const dx = wrap(px[j] - px[i], W), dy = wrap(py[j] - py[i], H);
+        if (dx * dx + dy * dy < LINK * LINK) join(i, j);
+      }
+    }
+  }
+
+  // 3) 무리별로 모으기
+  const groups = new Map();
+  for (let i = 0; i < COUNT; i++) {
+    const r = root(i);
+    if (!groups.has(r)) groups.set(r, []);
+    groups.get(r).push(i);
+  }
+
+  // 4) 큰 무리만 미생물로: 가운데, 크기, 움직이는 방향 계산
+  const found = [];
+  for (const members of groups.values()) {
+    if (members.length < MIN_SIZE) continue;
+    const first = members[0];
+    let sx = 0, sy = 0, svx = 0, svy = 0;
+    for (const j of members) {
+      sx += wrap(px[j] - px[first], W); sy += wrap(py[j] - py[first], H);
+      svx += vx[j]; svy += vy[j];
+    }
+    const n = members.length;
+    const cx = (px[first] + sx / n + W) % W, cy = (py[first] + sy / n + H) % H;
+    let r = 0;
+    for (const j of members) r = Math.max(r, Math.hypot(wrap(px[j] - cx, W), wrap(py[j] - cy, H)));
+    const avx = svx / n, avy = svy / n;
+    // 안에서 꿈틀거리는 정도(무리 전체 움직임과 다르게 움직이는 양)와 도는 정도
+    let wiggle = 0, spin = 0;
+    for (const j of members) {
+      const rvx = vx[j] - avx, rvy = vy[j] - avy;
+      wiggle += Math.hypot(rvx, rvy);
+      const rx = wrap(px[j] - cx, W), ry = wrap(py[j] - cy, H);
+      const d = Math.hypot(rx, ry);
+      if (d > 1) spin += (rx * rvy - ry * rvx) / d; // 가운데를 도는 방향의 속도
+    }
+    found.push({ id: 0, x: cx, y: cy, r, vx: avx, vy: avy, size: n,
+                 speed: Math.hypot(avx, avy), wiggle: wiggle / n, spin: spin / n, turn: 0, age: 0 });
+  }
+
+  // 5) 지난번에 찾은 미생물과 가까우면 같은 번호를 이어 줌 (번호가 계속 바뀌지 않게)
+  const used = new Set();
+  found.sort((a, b) => b.size - a.size);
+  for (const o of found) {
+    let best = null, bestD = 50;
+    for (const p of organisms) {
+      if (used.has(p.id)) continue;
+      const d = Math.hypot(wrap(o.x - p.x, W), wrap(o.y - p.y, H));
+      if (d < bestD) { bestD = d; best = p; }
+    }
+    if (best) {
+      o.id = best.id; used.add(best.id);
+      // 방향이 얼마나 꺾였는지 (둘 다 움직이고 있을 때만)
+      let turn = 0;
+      if (o.speed > 0.2 && best.speed > 0.2) {
+        turn = Math.abs(Math.atan2(o.vx * best.vy - o.vy * best.vx, o.vx * best.vx + o.vy * best.vy));
+      }
+      // 한 번 본 값만 믿지 않고, 지난 값과 섞어서 천천히 바뀌게 (오래 지켜본 평균)
+      const k = 0.1;
+      o.speed  = best.speed  + (o.speed  - best.speed)  * k;
+      o.wiggle = best.wiggle + (o.wiggle - best.wiggle) * k;
+      o.spin   = best.spin   + (o.spin   - best.spin)   * k;
+      o.turn   = best.turn   + (turn     - best.turn)   * k;
+      o.age = best.age + 1;
+    } else o.id = nextId++;
+    o.type = classify(o);
+  }
+  organisms = found;
+  document.getElementById('orgCount').textContent = organisms.length;
+  drawTypeList();
+}
+
+// ===== 미생물 종류 (움직이는 방식으로 나눔) =====
+const TYPES = {
+  watch:  { name: '관찰 중',  color: '#888888', desc: '아직 지켜보는 중' },
+  stone:  { name: '돌멩이형', color: '#9e9e9e', desc: '거의 가만히 있음' },
+  wiggle: { name: '꼼지락형', color: '#7dffb0', desc: '제자리에서 꿈틀거림' },
+  top:    { name: '팽이형',   color: '#ffe066', desc: '제자리에서 빙글빙글 돎' },
+  snail:  { name: '달팽이형', color: '#66c2ff', desc: '천천히 한 방향으로 감' },
+  wander: { name: '방황형',   color: '#d38cff', desc: '이리저리 방향을 바꿈' },
+  rocket: { name: '로켓형',   color: '#ff6b6b', desc: '빠르게 쭉 나아감' },
+  crazy:  { name: '날뛰기형', color: '#ff9f43', desc: '빠르면서 막 꺾음' },
+};
+const SLOW = 0.25, FAST = 1.5, TURNY = 0.12, SPINNY = 0.5, WIGGLY = 0.6;
+
+function classify(o) {
+  if (o.age < 10) return 'watch';                       // 처음 30프레임쯤은 지켜보기만
+  if (Math.abs(o.spin) > SPINNY && o.speed < FAST) return 'top';
+  if (o.speed < SLOW) return o.wiggle > WIGGLY ? 'wiggle' : 'stone';
+  if (o.speed > FAST) return o.turn > TURNY ? 'crazy' : 'rocket';
+  return o.turn > TURNY ? 'wander' : 'snail';
+}
+
+function drawTypeList() {
+  const counts = {};
+  for (const o of organisms) counts[o.type] = (counts[o.type] || 0) + 1;
+  document.getElementById('typeList').innerHTML = Object.entries(TYPES).map(([key, t]) =>
+    `<div style="opacity:${counts[key] ? 1 : 0.4}"><span class="dot" style="background:${t.color};width:10px;height:10px"></span>
+     <b>${t.name}</b> ${counts[key] || 0} · <span style="color:#888">${t.desc}</span></div>`).join('');
+}
+
+function drawOrganisms() {
+  ctx.lineWidth = 1.5;
+  ctx.font = '12px sans-serif';
+  for (const o of organisms) {
+    const t = TYPES[o.type] || TYPES.watch;
+    // 동그라미 테두리 (종류마다 색이 다름)
+    ctx.strokeStyle = t.color;
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, o.r + 8, 0, Math.PI * 2);
+    ctx.stroke();
+    // 움직이는 방향 화살표
+    const speed = Math.hypot(o.vx, o.vy);
+    if (speed > 0.3) {
+      const len = Math.min(60, speed * 25);
+      const ax = o.vx / speed, ay = o.vy / speed;
+      const sx = o.x + ax * (o.r + 8), sy = o.y + ay * (o.r + 8);
+      const ex = sx + ax * len, ey = sy + ay * len;
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.9)';
+      ctx.beginPath();
+      ctx.moveTo(sx, sy); ctx.lineTo(ex, ey);
+      ctx.lineTo(ex - ax * 7 - ay * 5, ey - ay * 7 + ax * 5);
+      ctx.moveTo(ex, ey);
+      ctx.lineTo(ex - ax * 7 + ay * 5, ey - ay * 7 - ax * 5);
+      ctx.stroke();
+    }
+    // 이름표
+    ctx.fillStyle = t.color;
+    ctx.fillText(`#${o.id} ${t.name} · ${o.size}개`, o.x - o.r - 8, o.y - o.r - 12);
+  }
+}
+
+function loop() {
+  step();
+  draw();
+  if (showOrganisms) {
+    if (frame % 3 === 0) findOrganisms(); // 3번에 한 번만 찾아서 느려지지 않게
+    drawOrganisms();
+  }
+  frame++;
+  requestAnimationFrame(loop);
+}
 
 // ===== 규칙 표 =====
 function cellColor(v) {
@@ -187,6 +375,20 @@ document.getElementById('colorCount').addEventListener('input', e => {
   COLORS = ALL_COLORS.slice(0, n);
   randomRules();
   spawn();
+});
+
+document.getElementById('toggleOrg').onclick = e => {
+  showOrganisms = !showOrganisms;
+  e.target.textContent = showOrganisms ? '미생물 표시 끄기' : '미생물 표시 켜기';
+  if (!showOrganisms) {
+    organisms = [];
+    document.getElementById('orgCount').textContent = '-';
+    document.getElementById('typeList').innerHTML = '';
+  }
+};
+document.getElementById('minSize').addEventListener('input', e => {
+  MIN_SIZE = +e.target.value;
+  document.getElementById('minSizeText').textContent = MIN_SIZE;
 });
 
 document.getElementById('newRules').onclick = randomRules;
