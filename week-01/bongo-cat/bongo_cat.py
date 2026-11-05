@@ -96,6 +96,13 @@ def load(name):
     path = FOLDER / name
     if not path.exists():
         raise SystemExit(f"그림 파일이 없어요: {path}")
+    try:
+        # Pillow 가 있으면 부드럽게 줄이기
+        from PIL import Image, ImageTk
+        img = Image.open(path).convert("RGBA").resize((SIZE, SIZE), Image.LANCZOS)
+        return ImageTk.PhotoImage(img)
+    except ImportError:
+        pass
     img = tk.PhotoImage(file=str(path))
     # 그림 크기를 SIZE 에 맞추기 (가로 기준)
     w = img.width()
