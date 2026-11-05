@@ -1,0 +1,206 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>미생물 시뮬레이터</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
+  canvas { display: block; }
+  #panel {
+    position: fixed; top: 12px; left: 12px; padding: 12px;
+    background: rgba(20, 20, 20, 0.85); color: #ddd; border-radius: 8px; font-size: 13px;
+  }
+  #panel button { margin: 2px 4px 8px 0; padding: 4px 10px; cursor: pointer; }
+  table { border-collapse: collapse; }
+  td { width: 26px; height: 26px; text-align: center; font-size: 11px; color: #000; cursor: pointer; }
+  td.head { cursor: default; }
+  .dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; }
+  #help { margin-top: 6px; line-height: 1.5; color: #aaa; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel">
+  <button id="newRules">새 규칙</button>
+  <button id="respawn">다시 배치</button>
+  <button id="hide">표 숨기기</button>
+  <div style="margin-bottom:8px">
+    색 개수: <input id="colorCount" type="range" min="1" max="8" value="5" style="vertical-align:middle">
+    <b id="colorCountText">5</b>개
+  </div>
+  <div id="tableBox">
+    <table id="rules"></table>
+    <div id="help">
+      줄 = 움직이는 색, 칸 = 상대 색<br>
+      초록: 따라감 · 빨강: 피함<br>
+      칸을 누르면 값이 바뀜
+    </div>
+  </div>
+</div>
+<script>
+// ===== 설정 =====
+// 빨, 노, 초, 파, 보라, 주황, 하늘, 분홍
+const ALL_COLORS = ['#ff4d4d', '#ffd23f', '#3fdc5a', '#3fa9ff', '#c86bff', '#ff9a3c', '#5ff0e6', '#ff7ac8'];
+let COLORS = ALL_COLORS.slice(0, 5); // 지금 쓰는 색들 (처음엔 5개)
+const COUNT = 1200;      // 구슬 개수
+const R_MAX = 80;        // 이 거리 안에 있는 구슬끼리만 서로 영향을 줌
+const FRICTION = 0.85;   // 속도가 줄어드는 정도 (1에 가까울수록 미끄러움)
+const FORCE = 0.6;       // 끌림/밀림 세기
+const STEPS = [-1, -0.5, 0, 0.5, 1]; // 칸을 누를 때 바뀌는 값
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+addEventListener('resize', resize);
+resize();
+
+// ===== 규칙: rules[a][b] = a색이 b색을 볼 때 (+ 따라감, - 피함) =====
+let rules = [];
+function randomRules() {
+  rules = COLORS.map(() => COLORS.map(() => Math.round((Math.random() * 2 - 1) * 10) / 10));
+  drawTable();
+}
+
+// ===== 구슬 =====
+let px, py, vx, vy, kind;
+function spawn() {
+  px = new Float32Array(COUNT); py = new Float32Array(COUNT);
+  vx = new Float32Array(COUNT); vy = new Float32Array(COUNT);
+  kind = new Uint8Array(COUNT);
+  for (let i = 0; i < COUNT; i++) {
+    px[i] = Math.random() * W;
+    py[i] = Math.random() * H;
+    kind[i] = Math.floor(Math.random() * COLORS.length);
+  }
+}
+
+// 거리(0~1)에 따른 힘: 너무 가까우면 무조건 밀어내고, 그 바깥에서는 규칙대로
+function force(r, a) {
+  const close = 0.3;
+  if (r < close) return r / close - 1;
+  if (r < 1) return a * (1 - Math.abs(2 * r - 1 - close) / (1 - close));
+  return 0;
+}
+
+// 화면 끝은 반대쪽과 이어져 있음 (가장 가까운 방향으로 거리 계산)
+function wrap(d, size) {
+  if (d > size / 2) return d - size;
+  if (d < -size / 2) return d + size;
+  return d;
+}
+
+// ===== 한 번 움직이기 (격자로 나눠서 가까운 구슬만 확인) =====
+function step() {
+  const cols = Math.max(1, Math.floor(W / R_MAX));
+  const rows = Math.max(1, Math.floor(H / R_MAX));
+  const cw = W / cols, ch = H / rows;
+  const grid = Array.from({ length: cols * rows }, () => []);
+  for (let i = 0; i < COUNT; i++) {
+    const gx = Math.min(cols - 1, Math.floor(px[i] / cw));
+    const gy = Math.min(rows - 1, Math.floor(py[i] / ch));
+    grid[gy * cols + gx].push(i);
+  }
+
+  for (let i = 0; i < COUNT; i++) {
+    const gx = Math.min(cols - 1, Math.floor(px[i] / cw));
+    const gy = Math.min(rows - 1, Math.floor(py[i] / ch));
+    let fx = 0, fy = 0;
+    const myRules = rules[kind[i]];
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        const cell = grid[((gy + oy + rows) % rows) * cols + ((gx + ox + cols) % cols)];
+        for (const j of cell) {
+          if (j === i) continue;
+          const dx = wrap(px[j] - px[i], W);
+          const dy = wrap(py[j] - py[i], H);
+          const dist = Math.hypot(dx, dy);
+          if (dist > 0 && dist < R_MAX) {
+            const f = force(dist / R_MAX, myRules[kind[j]]);
+            fx += (dx / dist) * f;
+            fy += (dy / dist) * f;
+          }
+        }
+      }
+    }
+    vx[i] = vx[i] * FRICTION + fx * FORCE;
+    vy[i] = vy[i] * FRICTION + fy * FORCE;
+  }
+
+  for (let i = 0; i < COUNT; i++) {
+    px[i] = (px[i] + vx[i] + W) % W;
+    py[i] = (py[i] + vy[i] + H) % H;
+  }
+}
+
+// ===== 그리기 =====
+function draw() {
+  ctx.fillStyle = 'rgba(0, 0, 0, 0.35)'; // 살짝 남는 꼬리
+  ctx.fillRect(0, 0, W, H);
+  for (let c = 0; c < COLORS.length; c++) {
+    ctx.fillStyle = COLORS[c];
+    ctx.beginPath();
+    for (let i = 0; i < COUNT; i++) {
+      if (kind[i] !== c) continue;
+      ctx.moveTo(px[i] + 2.5, py[i]);
+      ctx.arc(px[i], py[i], 2.5, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  }
+}
+
+function loop() { step(); draw(); requestAnimationFrame(loop); }
+
+// ===== 규칙 표 =====
+function cellColor(v) {
+  return v >= 0
+    ? `rgb(${Math.round(60 - v * 40)}, ${Math.round(80 + v * 150)}, 60)`
+    : `rgb(${Math.round(80 - v * 150)}, 50, 50)`;
+}
+function drawTable() {
+  const t = document.getElementById('rules');
+  let html = '<tr><td class="head"></td>' +
+    COLORS.map(c => `<td class="head"><span class="dot" style="background:${c}"></span></td>`).join('') + '</tr>';
+  rules.forEach((row, a) => {
+    html += `<tr><td class="head"><span class="dot" style="background:${COLORS[a]}"></span></td>`;
+    row.forEach((v, b) => {
+      html += `<td data-a="${a}" data-b="${b}" style="background:${cellColor(v)}">${v.toFixed(1)}</td>`;
+    });
+    html += '</tr>';
+  });
+  t.innerHTML = html;
+}
+document.getElementById('rules').addEventListener('click', e => {
+  const td = e.target.closest('td[data-a]');
+  if (!td) return;
+  const a = +td.dataset.a, b = +td.dataset.b;
+  const next = STEPS.find(s => s > rules[a][b] + 0.01);
+  rules[a][b] = next === undefined ? STEPS[0] : next;
+  drawTable();
+});
+
+// 색 개수를 바꾸면: 그만큼 색을 고르고, 규칙 표를 새로 만들고, 구슬을 다시 흩어 놓음
+document.getElementById('colorCount').addEventListener('input', e => {
+  const n = +e.target.value;
+  document.getElementById('colorCountText').textContent = n;
+  COLORS = ALL_COLORS.slice(0, n);
+  randomRules();
+  spawn();
+});
+
+document.getElementById('newRules').onclick = randomRules;
+document.getElementById('respawn').onclick = spawn;
+document.getElementById('hide').onclick = e => {
+  const box = document.getElementById('tableBox');
+  const hidden = box.style.display === 'none';
+  box.style.display = hidden ? '' : 'none';
+  e.target.textContent = hidden ? '표 숨기기' : '표 보이기';
+};
+
+randomRules();
+spawn();
+loop();
+</script>
+</body>
+</html>
