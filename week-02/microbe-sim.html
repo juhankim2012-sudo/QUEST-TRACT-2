@@ -6,7 +6,10 @@
 <title>미생물 시뮬레이터</title>
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
-  canvas { display: block; }
+  canvas { display: block; touch-action: none; }
+  #panel.folded #panelBody { display: none; }
+  #panel.folded #fold { margin-bottom: 0; }
+  #mouseMode.on { background: #ffd23f; color: #000; }
   #panel {
     position: fixed; top: 12px; left: 12px; padding: 12px;
     background: rgba(20, 20, 20, 0.85); color: #ddd; border-radius: 8px; font-size: 13px;
@@ -23,9 +26,16 @@
 <body>
 <canvas id="c"></canvas>
 <div id="panel">
+  <button id="fold">▲ 패널 접기</button>
+  <div id="panelBody">
   <button id="newRules">새 규칙</button>
   <button id="respawn">다시 배치</button>
   <button id="hide">표 숨기기</button>
+  <div style="margin-bottom:8px">
+    <button id="mouseMode">🖱 마우스 모드 켜기</button>
+    범위: <input id="mouseR" type="range" min="30" max="250" value="100" style="vertical-align:middle">
+    <b id="mouseRText">100</b>
+  </div>
   <div style="margin-bottom:8px">
     <button id="pause">⏸ 일시정지</button>
     <span id="speeds">
@@ -56,6 +66,7 @@
       초록: 따라감 · 빨강: 피함<br>
       칸을 누르면 값이 바뀜
     </div>
+  </div>
   </div>
 </div>
 <script>
@@ -453,6 +464,10 @@ function loop() {
     while (acc >= 1) { step(); acc -= 1; }
   }
   draw();
+  if (mouseMode && mx > -900) {
+    ctx.beginPath(); ctx.arc(mx, my, mouseR, 0, Math.PI * 2);
+    ctx.strokeStyle = grabbed ? '#ffd23f' : 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1.5; ctx.stroke();
+  }
   if (showOrganisms) {
     if (frame % 3 === 0) findOrganisms(); // 3번에 한 번만 찾아서 느려지지 않게
     drawOrganisms();
@@ -537,6 +552,54 @@ document.querySelectorAll('#speeds button').forEach(b => {
 addEventListener('keydown', e => {
   if (e.code === 'Space') { e.preventDefault(); setPaused(!paused); }
 });
+
+// 접기 / 마우스 모드: 켜 두었을 때만 드래그로 구슬을 옮김
+const panel = document.getElementById('panel');
+const foldBtn = document.getElementById('fold');
+foldBtn.onclick = () => {
+  const f = panel.classList.toggle('folded');
+  foldBtn.textContent = f ? '▼ 패널 펼치기' : '▲ 패널 접기';
+};
+let mouseMode = false, mouseR = 100;
+let mx = -999, my = -999, grabbed = null, lastX = 0, lastY = 0;
+const mouseBtn = document.getElementById('mouseMode');
+mouseBtn.onclick = () => {
+  mouseMode = !mouseMode;
+  mouseBtn.classList.toggle('on', mouseMode);
+  mouseBtn.textContent = mouseMode ? '🖱 마우스 모드 끄기' : '🖱 마우스 모드 켜기';
+  canvas.style.cursor = mouseMode ? 'grab' : '';
+  grabbed = null;
+  if (!mouseMode) { mx = my = -999; }
+};
+document.getElementById('mouseR').addEventListener('input', e => {
+  mouseR = +e.target.value;
+  document.getElementById('mouseRText').textContent = mouseR;
+});
+canvas.addEventListener('pointerdown', e => {
+  if (!mouseMode) return;
+  canvas.setPointerCapture(e.pointerId);
+  lastX = e.clientX; lastY = e.clientY;
+  grabbed = [];  // 누른 순간 범위 안에 있던 구슬만 잡음
+  for (let i = 0; i < COUNT; i++) {
+    if (Math.hypot(wrap(px[i] - e.clientX, W), wrap(py[i] - e.clientY, H)) < mouseR) grabbed.push(i);
+  }
+  canvas.style.cursor = 'grabbing';
+});
+canvas.addEventListener('pointermove', e => {
+  mx = e.clientX; my = e.clientY;
+  if (!mouseMode || !grabbed) return;
+  const dx = e.clientX - lastX, dy = e.clientY - lastY;
+  lastX = e.clientX; lastY = e.clientY;
+  for (const i of grabbed) {
+    px[i] = (px[i] + dx + W) % W;
+    py[i] = (py[i] + dy + H) % H;
+    vx[i] = 0; vy[i] = 0;
+  }
+});
+function endGrab() { grabbed = null; if (mouseMode) canvas.style.cursor = 'grab'; }
+canvas.addEventListener('pointerup', endGrab);
+canvas.addEventListener('pointercancel', endGrab);
+canvas.addEventListener('pointerleave', () => { if (!grabbed) { mx = my = -999; } });
 
 randomRules();
 spawn();
