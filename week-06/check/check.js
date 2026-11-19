@@ -175,7 +175,13 @@ if (!hrefM) {
   }
 }
 
-const regM = mainText.match(/serviceWorker\.register\(\s*["'`]([^"'`]+)["'`]/);
+// 화면이 불러오는 내 스크립트 파일(app.js 등)도 같이 읽기
+let mainWithScripts = mainText;
+for (const s of mainText.matchAll(/<script[^>]+src=["']([^"':]+)["']/gi)) {
+  const sp = path.join(appDir, s[1].split("?")[0]);
+  if (fs.existsSync(sp)) mainWithScripts += "\n" + read(sp);
+}
+const regM = mainWithScripts.match(/serviceWorker\.register\(\s*["'`]([^"'`]+)["'`]/);
 if (!regM) {
   bad("서비스 워커 등록이 없음", "navigator.serviceWorker.register('sw.js') 넣기");
 } else {
