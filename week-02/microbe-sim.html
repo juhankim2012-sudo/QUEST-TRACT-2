@@ -166,6 +166,8 @@ function draw() {
 // 무리의 구슬 수가 최소 크기 이상이면 "미생물 한 마리"로 표시함.
 const LINK = 16;          // 이 거리 안이면 붙어 있다고 봄
 let MIN_SIZE = 15;        // 미생물이 되려면 필요한 구슬 수
+const JOIN_GAP = 30;      // 두 무리 테두리 사이가 이만큼 안쪽이면 합칠지 살펴봄
+const SAME_MOVE = 0.4;    // 속도 차이가 이보다 작으면 "같이 움직인다"고 봄
 let showOrganisms = true;
 let organisms = [];       // 지금 찾은 미생물들 {id, x, y, r, vx, vy, size}
 let nextId = 1;
@@ -209,9 +211,43 @@ function findOrganisms() {
     groups.get(r).push(i);
   }
 
+  // 3-2) 떨어져 있어도 같이 움직이는 무리는 하나로 합치기
+  //      (크기는 상관없음 – 작은 조각도 옆 무리와 같이 움직이면 합침)
+  const list = [...groups.values()].filter(m => m.length >= 2);
+  const info = list.map(m => {
+    const f = m[0];
+    let sx = 0, sy = 0, svx = 0, svy = 0;
+    for (const j of m) { sx += wrap(px[j] - px[f], W); sy += wrap(py[j] - py[f], H); svx += vx[j]; svy += vy[j]; }
+    const cx = (px[f] + sx / m.length + W) % W, cy = (py[f] + sy / m.length + H) % H;
+    let r = 0;
+    for (const j of m) r = Math.max(r, Math.hypot(wrap(px[j] - cx, W), wrap(py[j] - cy, H)));
+    return { cx, cy, r, vx: svx / m.length, vy: svy / m.length };
+  });
+  const gParent = list.map((_, i) => i);
+  const gRoot = i => { while (gParent[i] !== i) { gParent[i] = gParent[gParent[i]]; i = gParent[i]; } return i; };
+  for (let a = 0; a < list.length; a++) {
+    for (let b = a + 1; b < list.length; b++) {
+      const A = info[a], B = info[b];
+      const d = Math.hypot(wrap(A.cx - B.cx, W), wrap(A.cy - B.cy, H));
+      if (d > A.r + B.r + JOIN_GAP) continue;                    // 너무 멀면 따로
+      const dv = Math.hypot(A.vx - B.vx, A.vy - B.vy);           // 속도(빠르기+방향) 차이
+      const fast = Math.max(Math.hypot(A.vx, A.vy), Math.hypot(B.vx, B.vy));
+      if (dv < SAME_MOVE + fast * 0.25) {                         // 거의 똑같이 움직이면 하나
+        const ra = gRoot(a), rb = gRoot(b);
+        if (ra !== rb) gParent[ra] = rb;
+      }
+    }
+  }
+  const mergedMap = new Map();
+  list.forEach((m, i) => {
+    const r = gRoot(i);
+    if (!mergedMap.has(r)) mergedMap.set(r, []);
+    mergedMap.get(r).push(...m);
+  });
+
   // 4) 큰 무리만 미생물로: 가운데, 크기, 움직이는 방향 계산
   const found = [];
-  for (const members of groups.values()) {
+  for (const members of mergedMap.values()) {
     if (members.length < MIN_SIZE) continue;
     const first = members[0];
     let sx = 0, sy = 0, svx = 0, svy = 0;
@@ -233,8 +269,37 @@ function findOrganisms() {
       const d = Math.hypot(rx, ry);
       if (d > 1) spin += (rx * rvy - ry * rvx) / d; // 가운데를 도는 방향의 속도
     }
+    // ----- 구슬 배치 살펴보기 -----
+    // 길쭉함: 구슬들이 한 방향으로 길게 퍼져 있는지 (긴 쪽 길이 ÷ 짧은 쪽 길이)
+    // 속 빔: 가운데(반지름의 35% 안)에 있는 구슬 비율
+    // 퍼짐: 구슬들이 가운데서 평균 얼마나 떨어져 있는지 ÷ 가장 먼 구슬 거리
+    // 핵: 색마다 가운데서 떨어진 평균 거리를 비교 (한 색이 안쪽에 몰려 있는지)
+    let sxx = 0, syy = 0, sxy = 0, inner = 0, sumD = 0;
+    const colorSum = {}, colorCnt = {};
+    for (const j of members) {
+      const rx = wrap(px[j] - cx, W), ry = wrap(py[j] - cy, H);
+      const d = Math.hypot(rx, ry);
+      sxx += rx * rx; syy += ry * ry; sxy += rx * ry;
+      sumD += d;
+      if (d < r * 0.35) inner++;
+      colorSum[kind[j]] = (colorSum[kind[j]] || 0) + d;
+      colorCnt[kind[j]] = (colorCnt[kind[j]] || 0) + 1;
+    }
+    sxx /= n; syy /= n; sxy /= n;
+    const half = (sxx + syy) / 2;
+    const gap = Math.sqrt(Math.max(0, half * half - (sxx * syy - sxy * sxy)));
+    const elong = Math.sqrt((half + gap) / Math.max(0.01, half - gap));
+    let nearest = Infinity, farthest = 0;
+    for (const c in colorCnt) {
+      if (colorCnt[c] < 3) continue;
+      const m = colorSum[c] / colorCnt[c];
+      nearest = Math.min(nearest, m); farthest = Math.max(farthest, m);
+    }
+    const core = farthest > 0 && nearest < Infinity ? nearest / farthest : 1;
+
     found.push({ id: 0, x: cx, y: cy, r, vx: avx, vy: avy, size: n,
-                 speed: Math.hypot(avx, avy), wiggle: wiggle / n, spin: spin / n, turn: 0, age: 0 });
+                 speed: Math.hypot(avx, avy), wiggle: wiggle / n, spin: spin / n, turn: 0, age: 0,
+                 elong, hollow: inner / n, spread: r > 0 ? sumD / n / r : 0.6, core });
   }
 
   // 5) 지난번에 찾은 미생물과 가까우면 같은 번호를 이어 줌 (번호가 계속 바뀌지 않게)
@@ -260,9 +325,14 @@ function findOrganisms() {
       o.wiggle = best.wiggle + (o.wiggle - best.wiggle) * k;
       o.spin   = best.spin   + (o.spin   - best.spin)   * k;
       o.turn   = best.turn   + (turn     - best.turn)   * k;
+      o.elong  = best.elong  + (o.elong  - best.elong)  * k;
+      o.hollow = best.hollow + (o.hollow - best.hollow) * k;
+      o.spread = best.spread + (o.spread - best.spread) * k;
+      o.core   = best.core   + (o.core   - best.core)   * k;
       o.age = best.age + 1;
     } else o.id = nextId++;
     o.type = classify(o);
+    o.shape = classifyShape(o);
   }
   organisms = found;
   document.getElementById('orgCount').textContent = organisms.length;
@@ -290,12 +360,41 @@ function classify(o) {
   return o.turn > TURNY ? 'wander' : 'snail';
 }
 
+// ===== 미생물 모양 (구슬이 어떻게 배치돼 있는지로 나눔) =====
+const SHAPES = {
+  watch: { name: '?',      icon: '·', desc: '아직 지켜보는 중' },
+  ring:  { name: '고리',   icon: '◯', desc: '가운데가 비어 있음' },
+  cell:  { name: '세포',   icon: '◉', desc: '한 색이 가운데 핵처럼 모임' },
+  rod:   { name: '막대',   icon: '▬', desc: '한 방향으로 길쭉함' },
+  star:  { name: '불가사리', icon: '✶', desc: '팔처럼 삐죽 뻗어 나감' },
+  ball:  { name: '공',     icon: '●', desc: '꽉 찬 동그라미' },
+};
+const HOLLOW = 0.06, CORE = 0.45, LONG = 2.0, SPIKY = 0.45;
+
+function classifyShape(o) {
+  if (o.age < 10) return 'watch';
+  if (o.size >= 20 && o.hollow < HOLLOW) return 'ring';   // 가운데에 구슬이 거의 없음
+  if (o.core < CORE) return 'cell';                      // 한 색만 안쪽에 몰려 있음
+  if (o.elong > LONG) return 'rod';                      // 긴 쪽이 짧은 쪽의 2배 넘음
+  if (o.spread < SPIKY) return 'star';                   // 대부분 가운데 근처인데 몇 개만 멀리 뻗음
+  return 'ball';
+}
+
 function drawTypeList() {
-  const counts = {};
-  for (const o of organisms) counts[o.type] = (counts[o.type] || 0) + 1;
-  document.getElementById('typeList').innerHTML = Object.entries(TYPES).map(([key, t]) =>
-    `<div style="opacity:${counts[key] ? 1 : 0.4}"><span class="dot" style="background:${t.color};width:10px;height:10px"></span>
-     <b>${t.name}</b> ${counts[key] || 0} · <span style="color:#888">${t.desc}</span></div>`).join('');
+  const counts = {}, shapeCounts = {};
+  for (const o of organisms) {
+    counts[o.type] = (counts[o.type] || 0) + 1;
+    shapeCounts[o.shape] = (shapeCounts[o.shape] || 0) + 1;
+  }
+  document.getElementById('typeList').innerHTML =
+    '<b style="color:#fff">움직임</b>' +
+    Object.entries(TYPES).map(([key, t]) =>
+      `<div style="opacity:${counts[key] ? 1 : 0.4}"><span class="dot" style="background:${t.color};width:10px;height:10px"></span>
+       <b>${t.name}</b> ${counts[key] || 0} · <span style="color:#888">${t.desc}</span></div>`).join('') +
+    '<b style="color:#fff; display:block; margin-top:6px">모양 (구슬 배치)</b>' +
+    Object.entries(SHAPES).filter(([key]) => key !== 'watch').map(([key, s]) =>
+      `<div style="opacity:${shapeCounts[key] ? 1 : 0.4}"><span style="display:inline-block;width:14px;text-align:center">${s.icon}</span>
+       <b>${s.name}</b> ${shapeCounts[key] || 0} · <span style="color:#888">${s.desc}</span></div>`).join('');
 }
 
 function drawOrganisms() {
@@ -325,7 +424,9 @@ function drawOrganisms() {
     }
     // 이름표
     ctx.fillStyle = t.color;
-    ctx.fillText(`#${o.id} ${t.name} · ${o.size}개`, o.x - o.r - 8, o.y - o.r - 12);
+    const s = SHAPES[o.shape] || SHAPES.watch;
+    const label = o.type === 'watch' ? `#${o.id} 관찰 중` : `#${o.id} ${s.icon}${s.name} ${t.name}`;
+    ctx.fillText(`${label} · ${o.size}개`, o.x - o.r - 8, o.y - o.r - 12);
   }
 }
 
