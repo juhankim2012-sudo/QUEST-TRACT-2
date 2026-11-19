@@ -1,0 +1,387 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>미생물 샌드박스</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
+  canvas { display: block; touch-action: none; }
+  #panel {
+    position: fixed; top: 12px; left: 12px; padding: 12px; width: 270px;
+    max-height: calc(100% - 48px); overflow-y: auto;
+    background: rgba(20, 20, 20, 0.88); color: #ddd; border-radius: 8px; font-size: 13px;
+  }
+  #panel.folded #panelBody { display: none; }
+  #panel button, #panel a.btn {
+    margin: 2px 4px 6px 0; padding: 4px 10px; cursor: pointer; font-size: 13px;
+    background: #eee; color: #000; border: 1px solid #888; border-radius: 3px; text-decoration: none; display: inline-block;
+  }
+  #panel button.on { background: #3fa9ff; }
+  #panel h4 { margin: 10px 0 4px; font-size: 13px; color: #fff; border-top: 1px solid #444; padding-top: 8px; }
+  .row { margin-bottom: 6px; }
+  .row input[type=range] { vertical-align: middle; width: 130px; }
+  .dot { display: inline-block; width: 16px; height: 16px; border-radius: 50%; vertical-align: middle; }
+  #palette .sw { display: inline-block; margin: 2px 3px 2px 0; padding: 3px; border: 2px solid transparent; border-radius: 6px; cursor: pointer; text-align: center; font-size: 10px; }
+  #palette .sw.sel { border-color: #fff; }
+  table { border-collapse: collapse; }
+  td { width: 26px; height: 26px; text-align: center; font-size: 10px; color: #000; cursor: pointer; border: 2px solid transparent; }
+  td.head { cursor: default; }
+  td.sel { border-color: #fff; }
+  #help { color: #999; line-height: 1.5; margin-top: 4px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="panel">
+  <button id="fold">▲ 패널 접기</button>
+  <a class="btn" href="microbe-sim.html">← 시뮬레이터</a>
+  <div id="panelBody">
+    <div class="row">
+      <button id="pause">⏸ 일시정지</button>
+      <span id="speeds">
+        <button data-s="0.1">0.1×</button><button data-s="0.25">0.25×</button><button data-s="0.5">0.5×</button><button data-s="1" class="on">1×</button><button data-s="2">2×</button><button data-s="4">4×</button>
+      </span>
+    </div>
+
+    <h4>도구</h4>
+    <div class="row" id="tools">
+      <button data-t="place" class="on">➕ 배치</button>
+      <button data-t="erase">🗑 지우기</button>
+      <button data-t="pan">✋ 이동</button>
+    </div>
+    <div class="row">브러시 크기: <input id="brushR" type="range" min="4" max="150" value="30"> <b id="brushRText">30</b></div>
+    <div class="row">한 번에 개수: <input id="brushN" type="range" min="1" max="40" value="1"> <b id="brushNText">1</b>개</div>
+    <div id="palette"></div>
+    <div class="row">구슬: <b id="total">0</b>개 <span id="counts" style="color:#999"></span></div>
+    <button id="clear">전부 지우기</button>
+
+    <h4>화면 확대</h4>
+    <div class="row">
+      <button id="zoomOut">－</button><button id="zoomIn">＋</button><button id="zoomFit">전체 보기</button>
+      <b id="zoomText">100%</b>
+    </div>
+    <div id="help">마우스 휠 = 확대/축소 · 가운데 버튼 드래그 또는 ✋ 이동 = 화면 옮기기 · 스페이스바 = 일시정지</div>
+
+    <h4>규칙 (줄 색이 칸 색을 볼 때)</h4>
+    <table id="rules"></table>
+    <div class="row" id="editor" style="margin-top:6px"></div>
+    <button id="zeroRules">모두 0</button>
+    <button id="randRules">무작위</button>
+
+    <h4>세부 설정</h4>
+    <div class="row">영향 거리: <input id="sR" type="range" min="20" max="200" value="80"> <b id="tR">80</b></div>
+    <div class="row">힘 세기: <input id="sF" type="range" min="0.05" max="2" step="0.05" value="0.6"> <b id="tF">0.6</b></div>
+    <div class="row">마찰: <input id="sM" type="range" min="0.5" max="0.99" step="0.01" value="0.85"> <b id="tM">0.85</b></div>
+    <div class="row">최고 속도: <input id="sV" type="range" min="1" max="15" step="0.5" value="5"> <b id="tV">5</b></div>
+    <div class="row">밀어내는 거리 비율: <input id="sC" type="range" min="0.05" max="0.8" step="0.05" value="0.3"> <b id="tC">0.3</b></div>
+  </div>
+</div>
+<script>
+// ===== 설정 =====
+const COLORS = ['#ff4d4d', '#ffd23f', '#3fdc5a', '#3fa9ff', '#c86bff', '#ff9a3c', '#5ff0e6', '#ff7ac8'];
+const NAMES = ['빨강', '노랑', '초록', '파랑', '보라', '주황', '하늘', '분홍'];
+const NC = COLORS.length;
+const WORLD_W = 1600, WORLD_H = 1000;  // 샌드박스 세계 크기 (끝은 반대쪽과 이어져 있음)
+const MAX_BEADS = 4000;
+const P = { R: 80, FORCE: 0.6, FRICTION: 0.85, MAXV: 5, CLOSE: 0.3 };
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+addEventListener('resize', resize);
+resize();
+
+// ===== 보기(확대/이동): 화면좌표 = 세계좌표 * scale + (ox, oy) =====
+let scale = 1, ox = 0, oy = 0;
+function fitView() {
+  scale = Math.min(W / WORLD_W, H / WORLD_H) * 0.95;
+  ox = (W - WORLD_W * scale) / 2;
+  oy = (H - WORLD_H * scale) / 2;
+  showZoom();
+}
+function showZoom() { document.getElementById('zoomText').textContent = Math.round(scale * 100) + '%'; }
+function zoomAt(sx, sy, f) {
+  const ns = Math.min(10, Math.max(0.2, scale * f));
+  const wx = (sx - ox) / scale, wy = (sy - oy) / scale;
+  scale = ns; ox = sx - wx * scale; oy = sy - wy * scale;
+  showZoom();
+}
+const toWorld = (sx, sy) => [(sx - ox) / scale, (sy - oy) / scale];
+fitView();
+
+// ===== 규칙 =====
+const rules = Array.from({ length: NC }, () => new Array(NC).fill(0));
+
+// ===== 구슬 (빈 상태에서 시작) =====
+const px = [], py = [], vx = [], vy = [], kind = [];
+function addBead(x, y, k) {
+  if (px.length >= MAX_BEADS) return false;
+  px.push(((x % WORLD_W) + WORLD_W) % WORLD_W); py.push(((y % WORLD_H) + WORLD_H) % WORLD_H);
+  vx.push(0); vy.push(0); kind.push(k);
+  return true;
+}
+function removeBead(i) {
+  const last = px.length - 1;
+  px[i] = px[last]; py[i] = py[last]; vx[i] = vx[last]; vy[i] = vy[last]; kind[i] = kind[last];
+  px.pop(); py.pop(); vx.pop(); vy.pop(); kind.pop();
+}
+
+function force(r, a) {
+  const close = P.CLOSE;
+  if (r < close) return r / close - 1;
+  if (r < 1) return a * (1 - Math.abs(2 * r - 1 - close) / (1 - close));
+  return 0;
+}
+function wrap(d, size) {
+  if (d > size / 2) return d - size;
+  if (d < -size / 2) return d + size;
+  return d;
+}
+
+function step() {
+  const N = px.length;
+  if (N === 0) return;
+  const cols = Math.max(3, Math.floor(WORLD_W / P.R));
+  const rows = Math.max(3, Math.floor(WORLD_H / P.R));
+  const cw = WORLD_W / cols, ch = WORLD_H / rows;
+  const grid = Array.from({ length: cols * rows }, () => []);
+  const gxs = new Int32Array(N), gys = new Int32Array(N);
+  for (let i = 0; i < N; i++) {
+    gxs[i] = Math.min(cols - 1, Math.floor(px[i] / cw));
+    gys[i] = Math.min(rows - 1, Math.floor(py[i] / ch));
+    grid[gys[i] * cols + gxs[i]].push(i);
+  }
+  for (let i = 0; i < N; i++) {
+    const gx = gxs[i], gy = gys[i];
+    let fx = 0, fy = 0;
+    const myRules = rules[kind[i]];
+    for (let oy2 = -1; oy2 <= 1; oy2++) {
+      for (let ox2 = -1; ox2 <= 1; ox2++) {
+        const cell = grid[((gy + oy2 + rows) % rows) * cols + ((gx + ox2 + cols) % cols)];
+        for (const j of cell) {
+          if (j === i) continue;
+          const dx = wrap(px[j] - px[i], WORLD_W);
+          const dy = wrap(py[j] - py[i], WORLD_H);
+          const dist = Math.hypot(dx, dy);
+          if (dist > 0 && dist < P.R) {
+            const f = force(dist / P.R, myRules[kind[j]]);
+            fx += (dx / dist) * f;
+            fy += (dy / dist) * f;
+          }
+        }
+      }
+    }
+    vx[i] = vx[i] * P.FRICTION + fx * P.FORCE;
+    vy[i] = vy[i] * P.FRICTION + fy * P.FORCE;
+    const sp = Math.hypot(vx[i], vy[i]);
+    if (sp > P.MAXV) { vx[i] *= P.MAXV / sp; vy[i] *= P.MAXV / sp; }
+  }
+  for (let i = 0; i < N; i++) {
+    px[i] = (px[i] + vx[i] + WORLD_W) % WORLD_W;
+    py[i] = (py[i] + vy[i] + WORLD_H) % WORLD_H;
+  }
+}
+
+// ===== 그리기 =====
+let tool = 'place', brushR = 30, brushN = 1, selColor = 0;
+let mx = -999, my = -999;
+function draw() {
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  ctx.setTransform(scale, 0, 0, scale, ox, oy);
+  ctx.fillStyle = '#0b0b10';
+  ctx.fillRect(0, 0, WORLD_W, WORLD_H);
+  ctx.strokeStyle = '#444'; ctx.lineWidth = 2 / scale;
+  ctx.strokeRect(0, 0, WORLD_W, WORLD_H);
+  const rad = Math.max(2, 3);
+  for (let k = 0; k < NC; k++) {
+    ctx.fillStyle = COLORS[k];
+    ctx.beginPath();
+    for (let i = 0; i < px.length; i++) {
+      if (kind[i] !== k) continue;
+      ctx.moveTo(px[i] + rad, py[i]);
+      ctx.arc(px[i], py[i], rad, 0, Math.PI * 2);
+    }
+    ctx.fill();
+  }
+  // 브러시 원
+  if (mx > -900 && tool !== 'pan') {
+    const [wx, wy] = toWorld(mx, my);
+    ctx.beginPath(); ctx.arc(wx, wy, brushR, 0, Math.PI * 2);
+    ctx.strokeStyle = tool === 'erase' ? '#ff4d4d' : COLORS[selColor];
+    ctx.lineWidth = 1.5 / scale; ctx.stroke();
+  }
+}
+
+let paused = false, speed = 1, acc = 0;
+function loop() {
+  if (!paused) {
+    acc += speed;
+    let guard = 0;
+    while (acc >= 1 && guard++ < 8) { step(); acc -= 1; }
+    if (acc > 8) acc = 0;
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+// ===== 배치 / 지우기 / 이동 =====
+let down = false, panning = false, lastSX = 0, lastSY = 0, lastPX = 0, lastPY = 0;
+function placeAt(wx, wy) {
+  if (brushN === 1) { addBead(wx, wy, selColor); }
+  else {
+    for (let n = 0; n < brushN; n++) {
+      const a = Math.random() * Math.PI * 2, r = brushR * Math.sqrt(Math.random());
+      addBead(wx + Math.cos(a) * r, wy + Math.sin(a) * r, selColor);
+    }
+  }
+  updateCounts();
+}
+function eraseAt(wx, wy) {
+  for (let i = px.length - 1; i >= 0; i--) {
+    if (Math.hypot(wrap(px[i] - wx, WORLD_W), wrap(py[i] - wy, WORLD_H)) < brushR) removeBead(i);
+  }
+  updateCounts();
+}
+function act(sx, sy) {
+  const [wx, wy] = toWorld(sx, sy);
+  if (tool === 'place') placeAt(wx, wy);
+  else if (tool === 'erase') eraseAt(wx, wy);
+}
+canvas.addEventListener('pointerdown', e => {
+  canvas.setPointerCapture(e.pointerId);
+  down = true; lastSX = e.clientX; lastSY = e.clientY;
+  panning = e.button === 1 || e.button === 2 || tool === 'pan';
+  if (!panning) { act(e.clientX, e.clientY); lastPX = e.clientX; lastPY = e.clientY; }
+});
+canvas.addEventListener('pointermove', e => {
+  mx = e.clientX; my = e.clientY;
+  if (!down) return;
+  if (panning) {
+    ox += e.clientX - lastSX; oy += e.clientY - lastSY;
+    lastSX = e.clientX; lastSY = e.clientY;
+    return;
+  }
+  if (tool === 'erase') { act(e.clientX, e.clientY); return; }
+  // 배치: 브러시 크기만큼 움직일 때마다 한 번씩 (너무 빽빽하게 쌓이지 않게)
+  const need = Math.max(6, brushN === 1 ? 10 : brushR * 0.8) * scale;
+  if (Math.hypot(e.clientX - lastPX, e.clientY - lastPY) >= need) {
+    act(e.clientX, e.clientY); lastPX = e.clientX; lastPY = e.clientY;
+  }
+});
+const endDown = () => { down = false; panning = false; };
+canvas.addEventListener('pointerup', endDown);
+canvas.addEventListener('pointercancel', endDown);
+canvas.addEventListener('pointerleave', () => { if (!down) { mx = my = -999; } });
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  zoomAt(e.clientX, e.clientY, e.deltaY < 0 ? 1.15 : 1 / 1.15);
+}, { passive: false });
+
+// ===== 패널 =====
+const $ = id => document.getElementById(id);
+function bindRange(id, textId, fn) {
+  $(id).addEventListener('input', e => { $(textId).textContent = e.target.value; fn(+e.target.value); });
+}
+bindRange('brushR', 'brushRText', v => brushR = v);
+bindRange('brushN', 'brushNText', v => brushN = v);
+bindRange('sR', 'tR', v => P.R = v);
+bindRange('sF', 'tF', v => P.FORCE = v);
+bindRange('sM', 'tM', v => P.FRICTION = v);
+bindRange('sV', 'tV', v => P.MAXV = v);
+bindRange('sC', 'tC', v => P.CLOSE = v);
+
+$('fold').onclick = () => {
+  const f = $('panel').classList.toggle('folded');
+  $('fold').textContent = f ? '▼ 패널 펼치기' : '▲ 패널 접기';
+};
+$('pause').onclick = () => setPaused(!paused);
+function setPaused(p) { paused = p; $('pause').textContent = paused ? '▶ 재생' : '⏸ 일시정지'; }
+document.querySelectorAll('#speeds button').forEach(b => b.onclick = () => {
+  speed = +b.dataset.s;
+  document.querySelectorAll('#speeds button').forEach(x => x.classList.toggle('on', x === b));
+});
+addEventListener('keydown', e => { if (e.code === 'Space') { e.preventDefault(); setPaused(!paused); } });
+document.querySelectorAll('#tools button').forEach(b => b.onclick = () => {
+  tool = b.dataset.t;
+  document.querySelectorAll('#tools button').forEach(x => x.classList.toggle('on', x === b));
+  canvas.style.cursor = tool === 'pan' ? 'grab' : 'crosshair';
+});
+canvas.style.cursor = 'crosshair';
+$('zoomIn').onclick = () => zoomAt(W / 2, H / 2, 1.3);
+$('zoomOut').onclick = () => zoomAt(W / 2, H / 2, 1 / 1.3);
+$('zoomFit').onclick = fitView;
+$('clear').onclick = () => { px.length = py.length = vx.length = vy.length = kind.length = 0; updateCounts(); };
+
+// 색 고르기
+function drawPalette() {
+  $('palette').innerHTML = COLORS.map((c, k) =>
+    `<span class="sw ${k === selColor ? 'sel' : ''}" data-k="${k}"><span class="dot" style="background:${c}"></span><br>${NAMES[k]}</span>`).join('');
+}
+$('palette').addEventListener('click', e => {
+  const sw = e.target.closest('.sw'); if (!sw) return;
+  selColor = +sw.dataset.k; drawPalette();
+});
+function updateCounts() {
+  $('total').textContent = px.length;
+  const c = new Array(NC).fill(0);
+  for (let i = 0; i < kind.length; i++) c[kind[i]]++;
+  $('counts').textContent = px.length >= MAX_BEADS ? '(최대)' : '';
+  $('total').title = c.map((n, k) => `${NAMES[k]} ${n}`).join(' · ');
+}
+
+// 규칙 표 + 세부 편집
+let selA = 0, selB = 0;
+function cellColor(v) {
+  return v >= 0
+    ? `rgb(${Math.round(60 - v * 40)}, ${Math.round(80 + v * 150)}, 60)`
+    : `rgb(${Math.round(80 - v * 150)}, 50, 50)`;
+}
+function drawTable() {
+  let html = '<tr><td class="head"></td>' +
+    COLORS.map(c => `<td class="head"><span class="dot" style="background:${c}"></span></td>`).join('') + '</tr>';
+  rules.forEach((row, a) => {
+    html += `<tr><td class="head"><span class="dot" style="background:${COLORS[a]}"></span></td>`;
+    row.forEach((v, b) => {
+      html += `<td data-a="${a}" data-b="${b}" class="${a === selA && b === selB ? 'sel' : ''}" style="background:${cellColor(v)}">${v.toFixed(2).replace(/0$/, '')}</td>`;
+    });
+    html += '</tr>';
+  });
+  $('rules').innerHTML = html;
+  drawEditor();
+}
+function drawEditor() {
+  const v = rules[selA][selB];
+  $('editor').innerHTML =
+    `<span class="dot" style="background:${COLORS[selA]}"></span> 이(가) <span class="dot" style="background:${COLORS[selB]}"></span> 을(를) 볼 때<br>` +
+    `<input id="ruleSlider" type="range" min="-1" max="1" step="0.05" value="${v}" style="width:160px;vertical-align:middle"> <b id="ruleVal">${v.toFixed(2)}</b><br>` +
+    `<span style="color:#999">초록(+) 따라감 · 빨강(−) 피함</span>`;
+  $('ruleSlider').addEventListener('input', e => {
+    rules[selA][selB] = +e.target.value;
+    $('ruleVal').textContent = (+e.target.value).toFixed(2);
+    const td = document.querySelector(`#rules td[data-a="${selA}"][data-b="${selB}"]`);
+    td.style.background = cellColor(rules[selA][selB]);
+    td.textContent = rules[selA][selB].toFixed(2).replace(/0$/, '');
+  });
+}
+$('rules').addEventListener('click', e => {
+  const td = e.target.closest('td[data-a]'); if (!td) return;
+  selA = +td.dataset.a; selB = +td.dataset.b; drawTable();
+});
+$('zeroRules').onclick = () => { rules.forEach(r => r.fill(0)); drawTable(); };
+$('randRules').onclick = () => {
+  rules.forEach(r => { for (let b = 0; b < NC; b++) r[b] = Math.round((Math.random() * 2 - 1) * 20) / 20; });
+  drawTable();
+};
+
+drawPalette();
+drawTable();
+updateCounts();
+loop();
+</script>
+</body>
+</html>
