@@ -167,14 +167,162 @@
 
     footer { margin-top: auto; padding-top: 20px; font-size: 0.8rem; color: var(--muted); text-align: center; }
     footer a { color: var(--accent); }
+
+    /* ================= 애니메이션 ================= */
+
+    /* 카드 바깥 글씨는 하늘 색에 맞춰요 (어두운 하늘이면 흰 글씨) */
+    h1 { color: var(--sky-text, var(--text)); text-shadow: 0 1px 6px rgba(0, 0, 0, 0.15); }
+    footer, footer a { color: var(--sky-text, var(--muted)); opacity: 0.9; }
+
+    /* 움직이는 배경 하늘: 맨 뒤에 깔려요 */
+    #sky {
+      position: fixed;
+      inset: 0;
+      z-index: -1;
+      overflow: hidden;
+      pointer-events: none;
+      background: var(--sky-bg, var(--bg));
+    }
+    #sky > * { position: absolute; }
+
+    /* 맑은 낮: 빛나는 해 */
+    .sunglow {
+      top: -18vmin; right: -18vmin;
+      width: 70vmin; height: 70vmin;
+      border-radius: 50%;
+      background: radial-gradient(circle, rgba(255, 236, 140, 0.95), rgba(255, 200, 60, 0.35) 40%, transparent 70%);
+      animation: glow 5s ease-in-out infinite alternate;
+    }
+    @keyframes glow { to { transform: scale(1.12); opacity: 0.85; } }
+
+    /* 밤: 반짝이는 별, 가끔 별똥별 */
+    .star {
+      width: var(--s); height: var(--s);
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 0 6px rgba(255, 255, 255, 0.8);
+      animation: twinkle var(--d) ease-in-out infinite;
+      animation-delay: var(--delay);
+    }
+    @keyframes twinkle { 0%, 100% { opacity: 0.15; } 50% { opacity: 1; } }
+    .shoot {
+      top: 12vh; right: -10vw;
+      width: 140px; height: 2px;
+      background: linear-gradient(90deg, #fff, transparent);
+      border-radius: 2px;
+      opacity: 0;
+      animation: shoot 9s linear infinite;
+      animation-delay: 2s;
+    }
+    @keyframes shoot {
+      0% { transform: translate(0, 0) rotate(-25deg); opacity: 0; }
+      2% { opacity: 1; }
+      9% { transform: translate(-55vw, 28vh) rotate(-25deg); opacity: 0; }
+      100% { opacity: 0; }
+    }
+
+    /* 흘러가는 구름 */
+    .cloud {
+      left: 0;
+      font-size: var(--s);
+      opacity: var(--o);
+      line-height: 1;
+      animation: drift var(--d) linear infinite;
+      animation-delay: var(--delay);
+    }
+    @keyframes drift { from { transform: translateX(-35vw); } to { transform: translateX(115vw); } }
+
+    /* 비 */
+    .drop {
+      top: 0;
+      width: 2px; height: var(--h);
+      border-radius: 2px;
+      background: linear-gradient(transparent, rgba(220, 235, 255, 0.85));
+      animation: fall var(--d) linear infinite;
+      animation-delay: var(--delay);
+    }
+    @keyframes fall { from { transform: translate(0, -25vh) rotate(8deg); } to { transform: translate(-12vh, 110vh) rotate(8deg); } }
+
+    /* 천둥번개: 하늘이 번쩍 */
+    .flash { inset: 0; background: #fff; opacity: 0; animation: flash 7s infinite; }
+    @keyframes flash {
+      0%, 90%, 92.5%, 95%, 100% { opacity: 0; }
+      91% { opacity: 0.55; }
+      94% { opacity: 0.35; }
+    }
+
+    /* 눈: 떨어지면서(바깥) 좌우로 흔들려요(안쪽) */
+    .flake { top: 0; animation: snowfall var(--d) linear infinite; animation-delay: var(--delay); }
+    .flake span {
+      display: block;
+      color: #fff;
+      font-size: var(--s);
+      text-shadow: 0 0 4px rgba(120, 150, 190, 0.6);
+      animation: sway var(--sw) ease-in-out infinite alternate;
+    }
+    @keyframes snowfall { from { transform: translateY(-10vh); } to { transform: translateY(110vh); } }
+    @keyframes sway { from { transform: translateX(-18px) rotate(-20deg); } to { transform: translateX(18px) rotate(20deg); } }
+
+    /* 안개 */
+    .fog {
+      left: -50%;
+      width: 200%; height: 35vh;
+      background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.55), transparent 65%);
+      animation: fogmove var(--d) ease-in-out infinite alternate;
+    }
+    @keyframes fogmove { from { transform: translateX(-12%); } to { transform: translateX(12%); } }
+
+    /* 카드를 살짝 비치게 해서 뒤의 하늘이 보이게 (흐림 처리로 글씨는 잘 읽혀요) */
+    @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+      .card { background: rgba(255, 255, 255, 0.88); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+      .problem { background: rgba(255, 244, 224, 0.9); }
+      @media (prefers-color-scheme: dark) {
+        .card { background: rgba(27, 38, 56, 0.8); }
+        .problem { background: rgba(58, 43, 18, 0.9); }
+      }
+    }
+
+    /* 하늘이 바뀔 때 부드럽게 나타나기 */
+    #sky.fade { animation: skyfade 1.2s ease both; }
+    @keyframes skyfade { from { opacity: 0; } }
+
+    /* 카드가 차례로 톡 올라오기 */
+    .pop { animation: pop 0.6s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: var(--delay, 0s); }
+    @keyframes pop { from { opacity: 0; transform: translateY(22px) scale(0.97); } }
+
+    /* 큰 날씨 그림: 둥실둥실, 해는 천천히 돌기 */
+    .icon { display: inline-block; animation: float 4s ease-in-out infinite; }
+    .icon.sunny { animation: float 4s ease-in-out infinite, turn 24s linear infinite; }
+    @keyframes float { 50% { translate: 0 -10px; } }
+    @keyframes turn { to { rotate: 360deg; } }
+
+    /* 앞으로 6시간: 한 칸씩 차례로 */
+    .hours li { animation: pop 0.5s cubic-bezier(0.2, 0.8, 0.2, 1) both; animation-delay: calc(0.45s + var(--i) * 0.08s); }
+
+    /* 정보 칸에 손가락(마우스)을 올리면 살짝 떠요 */
+    .item { transition: transform 0.2s, box-shadow 0.2s; }
+    .item:hover { transform: translateY(-3px); box-shadow: 0 6px 14px rgba(0, 0, 0, 0.08); }
+
+    /* 못 받아 왔을 때: 경고 칸이 살짝 흔들려요 */
+    .problem:not([hidden]) { animation: pop 0.5s both, shake 0.5s 0.5s; }
+    @keyframes shake { 25% { translate: -6px 0; } 50% { translate: 6px 0; } 75% { translate: -3px 0; } }
+
+    /* "동작 줄이기"를 켠 사람에게는 움직임을 멈춰요 */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation: none !important; transition: none !important; }
+      .shoot, .flash { display: none; }
+    }
   </style>
 </head>
 <body>
+  <!-- 움직이는 배경 하늘 (날씨에 따라 별·구름·비·눈이 바뀌어요) -->
+  <div id="sky" aria-hidden="true"></div>
+
   <main>
     <h1>📍 평택 지금 날씨</h1>
 
     <!-- 불러오는 동안 -->
-    <section id="loading" class="card loading" aria-live="polite">
+    <section id="loading" class="card loading pop" aria-live="polite">
       <div class="spinner" aria-hidden="true"></div>
       날씨를 불러오는 중이에요…
     </section>
@@ -188,7 +336,7 @@
 
     <!-- 받아 왔을 때 -->
     <div id="weather" class="layout" hidden>
-      <section class="card now">
+      <section class="card now pop">
         <div class="icon" id="icon" aria-hidden="true"></div>
         <div class="temp"><span id="temp"></span>°</div>
         <div class="word" id="word"></div>
@@ -200,7 +348,7 @@
         <div class="tip" id="tip"></div>
       </section>
 
-      <section class="card">
+      <section class="card pop" style="--delay: 0.15s">
         <h2>자세히</h2>
         <div class="grid">
           <div class="item"><div class="label">☔ 비 올 확률</div><div class="value" id="rain"></div><div class="sub" id="rain-sub"></div></div>
@@ -213,7 +361,7 @@
         <p class="air-problem" id="air-problem" hidden></p>
       </section>
 
-      <section class="card wide">
+      <section class="card wide pop" style="--delay: 0.3s">
         <h2>앞으로 6시간</h2>
         <ol class="hours" id="hours"></ol>
         <div class="updated" id="updated"></div>
@@ -281,6 +429,136 @@
 
     const $ = (id) => document.getElementById(id);
     const hhmm = (iso) => iso.slice(11, 16);
+
+    // ================= 움직이는 배경 하늘 =================
+    const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+    const rand = (a, b) => a + Math.random() * (b - a);
+
+    // 날씨 번호 → 하늘 종류
+    function skyType(code) {
+      if (code >= 95) return "thunder";
+      if ((code >= 71 && code <= 77) || code === 85 || code === 86) return "snow";
+      if ((code >= 51 && code <= 67) || (code >= 80 && code <= 82)) return "rain";
+      if (code === 45 || code === 48) return "fog";
+      if (code === 2 || code === 3) return "clouds";
+      return "clear";
+    }
+
+    // 하늘 종류마다 배경 색 [위, 아래]과 카드 바깥 글씨 색
+    const SKY_COLORS = {
+      clear:   { day: ["#5aa9ef", "#cbe6fb", "#13233a"], night: ["#070d24", "#25356b", "#f0f4ff"] },
+      clouds:  { day: ["#8fa6bd", "#dbe4ee", "#13233a"], night: ["#151c2e", "#3a4560", "#f0f4ff"] },
+      rain:    { day: ["#56677b", "#9eadbd", "#ffffff"], night: ["#10151f", "#33404f", "#f0f4ff"] },
+      thunder: { day: ["#2c3240", "#5d6676", "#ffffff"], night: ["#0a0c12", "#2a303c", "#f0f4ff"] },
+      snow:    { day: ["#a9bed3", "#f1f5f9", "#13233a"], night: ["#1b2436", "#4a5872", "#f0f4ff"] },
+      fog:     { day: ["#aeb6bf", "#e3e6ea", "#13233a"], night: ["#222831", "#4a525d", "#f0f4ff"] },
+    };
+
+    function buildSky(type, isDay) {
+      const sky = $("sky");
+      const [top, bottom, text] = SKY_COLORS[type][isDay ? "day" : "night"];
+      document.body.style.setProperty("--sky-bg", `linear-gradient(${top}, ${bottom})`);
+      document.body.style.setProperty("--sky-text", text);
+      sky.style.setProperty("--sky-bg", `linear-gradient(${top}, ${bottom})`);
+      sky.innerHTML = "";
+
+      const add = (cls, vars, html = "") => {
+        const el = document.createElement("div");
+        el.className = cls;
+        for (const k in vars) el.style.setProperty(k, vars[k]);
+        el.innerHTML = html;
+        sky.appendChild(el);
+        return el;
+      };
+      const wide = Math.min(window.innerWidth, 1600) / 1000; // 화면이 넓으면 조금 더 많이
+
+      // 별: 맑은 밤에 많이, 구름 낀 밤에는 조금
+      if (!isDay && (type === "clear" || type === "clouds")) {
+        const n = Math.round((type === "clear" ? 90 : 25) * Math.max(wide, 0.5));
+        for (let i = 0; i < n; i++) {
+          add("star", {
+            left: rand(0, 100) + "%", top: rand(0, 75) + "%",
+            "--s": rand(1, 3).toFixed(1) + "px", "--d": rand(2, 5).toFixed(1) + "s", "--delay": -rand(0, 5).toFixed(1) + "s",
+          });
+        }
+        if (type === "clear" && !reduceMotion) add("shoot", {});
+      }
+
+      // 해: 맑은 낮
+      if (isDay && type === "clear") add("sunglow", {});
+
+      // 구름
+      const cloudCount = { clear: 3, clouds: 8, rain: 5, thunder: 5, snow: 4, fog: 2 }[type];
+      const cloudChar = type === "rain" || type === "thunder" ? "🌧️" : "☁️";
+      for (let i = 0; i < cloudCount; i++) {
+        const dur = rand(45, 110);
+        add("cloud", {
+          top: rand(-3, 55) + "%",
+          "--s": rand(50, 130).toFixed(0) + "px",
+          "--o": (type === "clear" ? rand(0.35, 0.6) : rand(0.5, 0.85)).toFixed(2),
+          "--d": dur.toFixed(0) + "s",
+          "--delay": -rand(0, dur).toFixed(0) + "s", // 처음부터 여기저기 흩어져 있게
+        }, cloudChar);
+      }
+
+      // 비
+      if (type === "rain" || type === "thunder") {
+        const n = Math.round(110 * Math.max(wide, 0.45));
+        for (let i = 0; i < n; i++) {
+          add("drop", {
+            left: rand(0, 110) + "%",
+            "--h": rand(14, 26).toFixed(0) + "px", "--d": rand(0.6, 1.1).toFixed(2) + "s", "--delay": -rand(0, 1.1).toFixed(2) + "s",
+          });
+        }
+      }
+      if (type === "thunder" && !reduceMotion) add("flash", {});
+
+      // 눈
+      if (type === "snow") {
+        const n = Math.round(70 * Math.max(wide, 0.5));
+        for (let i = 0; i < n; i++) {
+          add("flake", {
+            left: rand(0, 100) + "%",
+            "--d": rand(7, 14).toFixed(1) + "s", "--delay": -rand(0, 14).toFixed(1) + "s",
+          }, `<span style="--s:${rand(10, 22).toFixed(0)}px; --sw:${rand(2, 4).toFixed(1)}s">❄</span>`);
+        }
+      }
+
+      // 안개
+      if (type === "fog") {
+        for (let i = 0; i < 4; i++) add("fog", { top: (i * 22 + rand(0, 8)) + "%", "--d": rand(14, 26).toFixed(0) + "s" });
+      }
+
+      sky.classList.remove("fade");
+      void sky.offsetWidth; // 부드럽게 나타나기를 다시 시작
+      sky.classList.add("fade");
+    }
+
+    // 숫자가 0 에서부터 올라가며 바뀌어요
+    function countTo(el, target) {
+      if (reduceMotion) { el.textContent = target; return; }
+      const startTime = performance.now(), ms = 900;
+      const step = (now) => {
+        const t = Math.min(1, (now - startTime) / ms);
+        const eased = 1 - Math.pow(1 - t, 3);
+        el.textContent = Math.round(target * eased);
+        if (t < 1) requestAnimationFrame(step);
+      };
+      requestAnimationFrame(step);
+    }
+
+    // 시험용: 주소 끝에 ?sky=rain 처럼 붙이면 그 하늘을 미리 볼 수 있어요
+    // (clear, clouds, rain, thunder, snow, fog / 밤은 &time=night)
+    const params = new URLSearchParams(location.search);
+    const testSky = SKY_COLORS[params.get("sky")] ? params.get("sky") : null;
+    const testTime = params.get("time"); // "day" 또는 "night"
+
+    // 날씨를 받아 오기 전에는 지금 시각으로 낮·밤만 정해서 맑은 하늘을 보여 줘요
+    {
+      const hour = new Date().getHours();
+      const isDay = testTime ? testTime !== "night" : hour >= 7 && hour < 18;
+      buildSky(testSky || "clear", isDay);
+    }
 
     // 못 받아 온 까닭을 담는 상자
     class Problem extends Error {
@@ -351,7 +629,12 @@
       const rainChance = nextRain.length ? Math.max(...nextRain) : (d.precipitation_probability_max[0] ?? 0);
 
       $("icon").textContent = icon;
-      $("temp").textContent = Math.round(c.temperature_2m);
+      $("icon").classList.toggle("sunny", icon === "☀️");
+      countTo($("temp"), Math.round(c.temperature_2m));
+
+      // 배경 하늘을 지금 날씨에 맞춰요
+      const isDay = testTime ? testTime !== "night" : c.is_day === 1;
+      buildSky(testSky || skyType(c.weather_code), isDay);
       $("word").textContent = word;
       $("feel").textContent = Math.round(c.apparent_temperature);
       $("max").textContent = Math.round(d.temperature_2m_max[0]) + "°";
@@ -375,6 +658,7 @@
       for (let i = start; i < Math.min(start + 6, h.time.length); i++) {
         const [, hIcon] = weatherWord(h.weather_code[i], h.is_day[i] === 1);
         const li = document.createElement("li");
+        li.style.setProperty("--i", i - start); // 한 칸씩 차례로 나타나게
         li.innerHTML =
           `<div class="h-time">${i === start ? "지금" : Number(h.time[i].slice(11, 13)) + "시"}</div>` +
           `<div class="h-icon">${hIcon}</div>` +
