@@ -13,6 +13,7 @@
   }
   #panel button { margin: 2px 4px 8px 0; padding: 4px 10px; cursor: pointer; }
   table { border-collapse: collapse; }
+  #speeds button.on { background: #3fa9ff; color: #000; }
   td { width: 26px; height: 26px; text-align: center; font-size: 11px; color: #000; cursor: pointer; }
   td.head { cursor: default; }
   .dot { display: inline-block; width: 14px; height: 14px; border-radius: 50%; }
@@ -25,6 +26,18 @@
   <button id="newRules">새 규칙</button>
   <button id="respawn">다시 배치</button>
   <button id="hide">표 숨기기</button>
+  <div style="margin-bottom:8px">
+    <button id="pause">⏸ 일시정지</button>
+    <span id="speeds">
+      <button data-s="0.1">0.1×</button>
+      <button data-s="0.25">0.25×</button>
+      <button data-s="0.5">0.5×</button>
+      <button data-s="1" class="on">1×</button>
+      <button data-s="2">2×</button>
+      <button data-s="4">4×</button>
+    </span>
+    (스페이스바 = 일시정지)
+  </div>
   <div style="margin-bottom:8px">
     색 개수: <input id="colorCount" type="range" min="1" max="8" value="5" style="vertical-align:middle">
     <b id="colorCountText">5</b>개
@@ -430,8 +443,15 @@ function drawOrganisms() {
   }
 }
 
+// 일시정지·배속: 한 화면에 step()을 몇 번 돌릴지 모아 두었다가(acc) 1 이상일 때만 돌림
+let paused = false;
+let speed = 1;
+let acc = 0;
 function loop() {
-  step();
+  if (!paused) {
+    acc += speed;
+    while (acc >= 1) { step(); acc -= 1; }
+  }
   draw();
   if (showOrganisms) {
     if (frame % 3 === 0) findOrganisms(); // 3번에 한 번만 찾아서 느려지지 않게
@@ -500,6 +520,23 @@ document.getElementById('hide').onclick = e => {
   box.style.display = hidden ? '' : 'none';
   e.target.textContent = hidden ? '표 숨기기' : '표 보이기';
 };
+
+// 일시정지 / 배속
+const pauseBtn = document.getElementById('pause');
+function setPaused(p) {
+  paused = p;
+  pauseBtn.textContent = paused ? '▶ 재생' : '⏸ 일시정지';
+}
+pauseBtn.onclick = () => setPaused(!paused);
+document.querySelectorAll('#speeds button').forEach(b => {
+  b.onclick = () => {
+    speed = +b.dataset.s;
+    document.querySelectorAll('#speeds button').forEach(x => x.classList.toggle('on', x === b));
+  };
+});
+addEventListener('keydown', e => {
+  if (e.code === 'Space') { e.preventDefault(); setPaused(!paused); }
+});
 
 randomRules();
 spawn();
