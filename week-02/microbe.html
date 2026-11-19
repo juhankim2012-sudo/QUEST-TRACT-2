@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>미생물 시뮬레이터</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; font-family: sans-serif; }
+  iframe { position: fixed; inset: 0; width: 100%; height: 100%; border: 0; }
+  iframe.off { display: none; }  /* 안 보는 쪽은 멈추고, 다시 열면 그 상태 그대로 이어짐 */
+  #tabs {
+    position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 10;
+    display: flex; background: rgba(20,20,20,0.9); border-radius: 20px; padding: 3px; border: 1px solid #555;
+  }
+  #tabs button {
+    border: 0; padding: 6px 16px; border-radius: 16px; cursor: pointer; font-size: 13px;
+    background: transparent; color: #ccc;
+  }
+  #tabs button.on { background: #3fa9ff; color: #000; font-weight: bold; }
+</style>
+</head>
+<body>
+<div id="tabs">
+  <button data-f="sim" class="on">🎲 무작위 생태</button>
+  <button data-f="box">🧪 샌드박스</button>
+</div>
+<iframe id="sim" src="microbe-sim.html" title="무작위 생태"></iframe>
+<iframe id="box" class="off" src="microbe-sandbox.html" title="샌드박스"></iframe>
+<script>
+const frames = { sim: document.getElementById('sim'), box: document.getElementById('box') };
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
+  for (const k in frames) frames[k].classList.toggle('off', k !== b.dataset.f);
+  document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b));
+  frames[b.dataset.f].contentWindow.focus();  // 스페이스바(일시정지)가 바로 먹히게
+});
+</script>
+</body>
+</html>
