@@ -3,6 +3,7 @@
 
 const PLACES = [
   { id: "here", name: "📍 내 위치" },
+  { id: "pyeongtaek", name: "평택", lat: 36.99, lon: 127.09 },
   { id: "seoul", name: "서울", lat: 37.57, lon: 126.98 },
   { id: "incheon", name: "인천", lat: 37.46, lon: 126.71 },
   { id: "daejeon", name: "대전", lat: 36.35, lon: 127.38 },
@@ -19,7 +20,7 @@ function describe(code, isDay = true) {
   const few = isDay ? "🌤️" : "🌙";
   if (code === 0) return [sun, "맑음"];
   if (code === 1) return [few, "대체로 맑음"];
-  if (code === 2) return ["⛅", "구름 조금"];
+  if (code === 2) return [isDay ? "⛅" : "☁️", "구름 조금"];
   if (code === 3) return ["☁️", "흐림"];
   if (code === 45 || code === 48) return ["🌫️", "안개"];
   if (code >= 51 && code <= 57) return ["🌦️", "이슬비"];
@@ -210,14 +211,15 @@ async function update() {
   }
 }
 
-// 지역 목록 채우기 (고른 지역은 이 폰에 기억해요. 처음에는 서울)
+// 지역 목록 채우기 (고른 지역은 이 폰에 기억해요. 처음에는 평택)
 for (const p of PLACES) {
   const opt = document.createElement("option");
   opt.value = p.id;
   opt.textContent = p.name;
   placeSelect.appendChild(opt);
 }
-placeSelect.value = load("place") || "seoul";
+placeSelect.value = load("place") || "pyeongtaek";
+if (!placeSelect.value) placeSelect.value = "pyeongtaek"; // 기억한 지역이 목록에 없을 때
 placeSelect.addEventListener("change", () => { save("place", placeSelect.value); update(); });
 $("retry").addEventListener("click", update);
 window.addEventListener("online", update);
