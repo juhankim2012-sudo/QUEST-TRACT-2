@@ -1,6 +1,14 @@
 *{box-sizing:border-box}
 [hidden]{display:none !important}
-body{font-family:system-ui,sans-serif;margin:0;background:linear-gradient(180deg,#9fd8ff 0%,#cdeeff 60%,#e9f8ff 100%) fixed;color:#222;line-height:1.4;min-height:100vh}
+/* 배경색: 화면마다 다르고, 화면이 움직이는 동안(moving)에는 하얀색 */
+@property --c1{syntax:"<color>";inherits:true;initial-value:#9fd8ff}
+@property --c2{syntax:"<color>";inherits:true;initial-value:#cdeeff}
+@property --c3{syntax:"<color>";inherits:true;initial-value:#e9f8ff}
+body,body[data-view=gallery]{--c1:#9fd8ff;--c2:#cdeeff;--c3:#e9f8ff}   /* 갤러리: 하늘색 */
+body[data-view=draw]{--c1:#a6e6c4;--c2:#d0f3df;--c3:#eefaf3}            /* 그림판: 연두색 */
+body[data-view=profile]{--c1:#d8c8ff;--c2:#eadfff;--c3:#f7f3ff}         /* 사람의 공간: 연보라색 */
+body.moving{--c1:#fff;--c2:#fff;--c3:#fff}
+body{font-family:system-ui,sans-serif;margin:0;background:linear-gradient(180deg,var(--c1) 0%,var(--c2) 60%,var(--c3) 100%) fixed;transition:--c1 .3s,--c2 .3s,--c3 .3s;color:#222;line-height:1.4;min-height:100vh}
 header,main{position:relative;z-index:1}
 a{color:inherit}
 header{display:flex;box-shadow:0 2px 8px rgba(40,100,160,.15);flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:10px 16px;background:#fff;border-bottom:1px solid #ddd}

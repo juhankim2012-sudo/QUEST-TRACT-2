@@ -89,6 +89,7 @@ function show(name) {
   const from = current;
   const prev = from ? views[from] : null;
   current = name;
+  document.body.dataset.view = name; // 화면마다 배경색이 다름 (style.css)
   window.scrollTo(0, 0);
 
   if (!prev || from === name || reduceMotion()) {
@@ -99,6 +100,7 @@ function show(name) {
   for (const [k, el] of Object.entries(views)) el.hidden = k !== name && k !== from;
   // 움직이는 동안 두 화면 중 큰 쪽 높이로 고정 → 이전 화면이 떠 있어도 페이지 길이(스크롤바)가 변하지 않음
   stage.style.minHeight = Math.max(prev.offsetHeight, next.offsetHeight) + "px";
+  document.body.classList.add("moving"); // 움직이는 동안 배경은 하얀색
   prev.classList.add("leaving-view"); // 겹쳐 놓고 같이 움직이기
   const outEls = targets(prev);
   const outLast = Math.min((outEls.length - 1) * STEP, MAX_DELAY); // 나가는 마지막 요소의 출발 시각
@@ -113,6 +115,7 @@ function show(name) {
     anims.forEach((a) => a.cancel());
     prev.hidden = true;
     prev.classList.remove("leaving-view");
+    document.body.classList.remove("moving");
     stage.style.minHeight = "";
     if (finishSlide === mine) finishSlide = null;
   };
