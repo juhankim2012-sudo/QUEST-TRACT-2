@@ -16,18 +16,64 @@ const detail = $("detail");
 //   #/draw    그리기
 //   #/u/이름   그 사람의 공간
 const views = { gallery: $("view-gallery"), draw: $("view-draw"), profile: $("view-profile") };
-// 깊이: 갤러리(0) → 그리기·사람의 공간(1). 깊어지면 오른쪽에서 들어오고, 돌아가면 왼쪽에서 들어온다.
-const depth = { gallery: 0, draw: 1, profile: 1 };
+// ================= 움직임 (밀려 나가고 들어오기) =================
+// - 오른쪽에 있는 요소는 오른쪽으로, 왼쪽에 있는 요소는 왼쪽으로 밀려 나가고,
+//   들어올 때도 자기 쪽에서 들어온다. (가운데쯤 있는 요소는 화면이 가는 방향을 따른다)
+// - 요소마다 아주 조금씩 늦게 출발하고, 움직이는 쪽으로 살짝 기울어진다.
+// - 처음에는 서서히 움직이기 시작해서 점점 빨라진다.
+const EASE = "cubic-bezier(.7, 0, .3, 1)";
+const DURATION = 480;   // 한 요소가 움직이는 시간(ms)
+const STEP = 35;        // 다음 요소가 늦게 출발하는 간격(ms)
+const MAX_DELAY = 280;  // 아무리 많아도 이 이상은 늦지 않게
+const LEAN = 8;         // 기울어지는 정도(도)
 const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// mode: "out" = 밀려 나감 / "in" = 밀려 들어옴
+// fallback: 가운데쯤 있는 요소가 향할(올) 쪽 (1 = 오른쪽, -1 = 왼쪽)
+// bound: 움직이는 범위(없으면 화면 전체). 창 안에서는 범위를 주고 흐려지게 한다.
+function fly(els, mode, fallback, bound) {
+  const b = bound || { left: 0, right: window.innerWidth };
+  const mid = (b.left + b.right) / 2;
+  const near = (b.right - b.left) * 0.05; // 정확히 가운데쯤인 요소만 "화면 방향" 을 따름
+  const fade = Boolean(bound);
+  const list = els
+    .map((el) => ({ el, r: el.getBoundingClientRect() }))
+    .filter(({ r }) => r.width > 0 && r.height > 0);
+  return list.map(({ el, r }, i) => {
+    const center = r.left + r.width / 2;
+    const side = Math.abs(center - mid) < near ? fallback : (center > mid ? 1 : -1);
+    const far = side > 0 ? b.right - r.left + 40 : -(r.right - b.left + 40);
+    const moving = mode === "out" ? side : -side;            // 실제로 움직이는 방향
+    const away = `translateX(${far}px) skewX(${moving > 0 ? -LEAN : LEAN}deg)`;
+    const home = "translateX(0px) skewX(0deg)";
+    const frames = mode === "out"
+      ? [{ transform: home, opacity: 1 }, { transform: away, opacity: fade ? 0 : 1 }]
+      : [{ transform: away, opacity: fade ? 0 : 1 }, { transform: home, opacity: 1 }];
+    return el.animate(frames, {
+      duration: DURATION,
+      delay: Math.min(i * STEP, MAX_DELAY),
+      easing: EASE,
+      fill: mode === "out" ? "forwards" : "backwards",
+    });
+  });
+}
+const allDone = (anims) => Promise.all(anims.map((a) => a.finished.catch(() => {})));
+
+// 한 화면 안에서 따로 움직일 요소들 (격자는 그림 한 칸씩)
+function targets(view) {
+  return [...view.children].flatMap((c) => (c.classList.contains("grid") ? [...c.children] : [c]));
+}
+
+// 깊이: 갤러리(0) → 그리기·사람의 공간(1). 깊어지면 앞으로(왼쪽으로 나가고 오른쪽에서 들어옴), 돌아가면 반대.
+const depth = { gallery: 0, draw: 1, profile: 1 };
 let current = null;
 let finishSlide = null;
-const SLIDE_CLASSES = ["leave-l", "leave-r", "enter-l", "enter-r"];
 
 function show(name) {
   if (finishSlide) finishSlide(); // 움직이는 중이면 먼저 끝내기
   const next = views[name];
-  const prev = current ? views[current] : null;
   const from = current;
+  const prev = from ? views[from] : null;
   current = name;
   window.scrollTo(0, 0);
 
@@ -37,21 +83,24 @@ function show(name) {
   }
   const forward = depth[name] >= depth[from];
   for (const [k, el] of Object.entries(views)) el.hidden = k !== name && k !== from;
-  prev.classList.add(forward ? "leave-l" : "leave-r"); // 지금 화면은 밀려 나가고
-  next.classList.add(forward ? "enter-r" : "enter-l"); // 새 화면은 밀려 들어옴
+  prev.classList.add("leaving-view"); // 겹쳐 놓고 같이 움직이기
+  const anims = [
+    ...fly(targets(prev), "out", forward ? -1 : 1),
+    ...fly(targets(next), "in", forward ? 1 : -1),
+  ];
   let timer = null;
-  finishSlide = () => {
+  const mine = () => {
     clearTimeout(timer);
+    anims.forEach((a) => a.cancel());
     prev.hidden = true;
-    prev.classList.remove(...SLIDE_CLASSES);
-    next.classList.remove(...SLIDE_CLASSES);
-    next.removeEventListener("animationend", onEnd);
-    finishSlide = null;
+    prev.classList.remove("leaving-view");
+    if (finishSlide === mine) finishSlide = null;
   };
-  const onEnd = (e) => { if (e.target === next) finishSlide && finishSlide(); };
-  next.addEventListener("animationend", onEnd);
-  timer = setTimeout(() => finishSlide && finishSlide(), 700); // 혹시 끝 신호가 안 와도 정리
+  finishSlide = mine;
+  allDone(anims).then(() => { if (finishSlide === mine) mine(); });
+  timer = setTimeout(() => { if (finishSlide === mine) mine(); }, 1800); // 혹시 끝 신호가 안 와도 정리
 }
+
 function go(hash) {
   if (location.hash === hash) route(); else location.hash = hash;
 }
@@ -217,31 +266,40 @@ function renderProfile(author) {
 
 // ================= 그림 크게 보기 + 댓글 =================
 let openId = null;
+let closing = null; // 닫는 모션이 진행 중이면 그것을 끝내는 함수
 function openDetail(id) {
   openId = id;
   renderDetail();
-  if (!detail.open) detail.showModal();
+  if (detail.open) return;
+  detail.showModal();
+  const dr = detail.getBoundingClientRect();
+  fly([...detail.children], "in", 1, { left: dr.left, right: dr.right }); // 창 안의 요소들이 오른쪽에서 밀려 들어옴
 }
-detail.addEventListener("close", () => { openId = null; });
+detail.addEventListener("close", () => { openId = null; if (closing) closing(); });
 // 창 바깥(어두운 곳)을 누르면 닫기
 detail.addEventListener("click", (e) => { if (e.target === detail) closeDetail(); });
 detail.addEventListener("cancel", (e) => { e.preventDefault(); closeDetail(); }); // Esc 키
 
-// 닫을 때도 옆으로 밀려 나가는 모션을 보여 준 뒤 닫기
+// 닫을 때도 요소들이 오른쪽으로 밀려 나간 뒤 닫기
 function closeDetail() {
-  if (!detail.open) return;
-  if (reduceMotion() || detail.classList.contains("leaving")) { detail.classList.remove("leaving"); detail.close(); return; }
+  if (!detail.open || closing) return;
+  if (reduceMotion()) { detail.close(); return; }
+  const dr = detail.getBoundingClientRect();
+  const anims = fly([...detail.children], "out", 1, { left: dr.left, right: dr.right });
   detail.classList.add("leaving");
-  let done = false;
-  const end = () => {
-    if (done) return;
-    done = true;
+  let timer = null;
+  const mine = () => {
+    clearTimeout(timer);
+    anims.forEach((a) => a.cancel());
     detail.classList.remove("leaving");
+    if (closing === mine) closing = null;
     if (detail.open) detail.close();
   };
-  detail.addEventListener("animationend", end, { once: true });
-  setTimeout(end, 500);
+  closing = mine;
+  allDone(anims).then(() => { if (closing === mine) mine(); });
+  timer = setTimeout(() => { if (closing === mine) mine(); }, 1800);
 }
+
 
 function renderDetail() {
   const d = Store.list().find((x) => x.id === openId);

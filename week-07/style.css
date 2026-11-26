@@ -94,25 +94,17 @@ dialog h3{margin:0 0 6px}
   100%{transform:translate(-12px,-120vh)}
 }
 
-/* ===== 화면이 바뀔 때: 지금 화면은 밀려 나가고 새 화면은 밀려 들어옴 ===== */
-#stage{position:relative;overflow-x:clip}
-.leave-l,.leave-r{position:absolute;top:0;left:0;width:100%}
-.leave-l{animation:outL .45s ease-in-out both}
-.leave-r{animation:outR .45s ease-in-out both}
-.enter-r{animation:inR .45s ease-in-out both}
-.enter-l{animation:inL .45s ease-in-out both}
-@keyframes outL{to{transform:translateX(-100%);opacity:0}}
-@keyframes outR{to{transform:translateX(100%);opacity:0}}
-@keyframes inR{from{transform:translateX(100%);opacity:0}}
-@keyframes inL{from{transform:translateX(-100%);opacity:0}}
+/* ===== 화면이 바뀔 때: 요소들이 옆으로 밀려 나가고 들어옴 (움직임은 app.js 의 fly) ===== */
+body{overflow-x:hidden}
+#stage{position:relative}
+.leaving-view{position:absolute;top:0;left:0;width:100%}
 
-/* 그림 크게 보는 창: 오른쪽에서 밀려 들어오고, 닫을 때 오른쪽으로 밀려 나감 */
-dialog[open]{animation:dlgIn .4s ease-out both}
-dialog[open]::backdrop{animation:fadeIn .4s ease-out both}
-dialog.leaving{animation:dlgOut .35s ease-in both}
-dialog.leaving::backdrop{animation:fadeOut .35s ease-in both}
-@keyframes dlgIn{from{transform:translateX(70vw);opacity:0}}
-@keyframes dlgOut{to{transform:translateX(70vw);opacity:0}}
+/* 그림 크게 보는 창: 안의 요소는 app.js 가 움직이고, 창 자체는 흐려졌다 나타남 */
+dialog{overflow-x:hidden}
+dialog[open]{animation:fadeIn .35s ease-out both}
+dialog[open]::backdrop{animation:fadeIn .35s ease-out both}
+dialog.leaving{animation:fadeOut .5s ease-in .15s both}
+dialog.leaving::backdrop{animation:fadeOut .5s ease-in .15s both}
 @keyframes fadeIn{from{opacity:0}}
 @keyframes fadeOut{to{opacity:0}}
 
