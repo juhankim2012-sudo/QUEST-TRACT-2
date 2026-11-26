@@ -108,7 +108,11 @@ function zoomAt(sx, sy, f) {
   showZoom();
 }
 const toWorld = (sx, sy) => [(sx - ox) / scale, (sy - oy) / scale];
-fitView();
+// 탭 안에서 숨겨진 채로 열리면 화면 크기가 0 이라 배율이 0 이 됨 → 크기가 생기는 첫 순간에 맞춰 줌
+let fitted = false;
+function fitOnce() { if (!fitted && W > 0 && H > 0) { fitView(); fitted = true; } }
+fitOnce();
+addEventListener('resize', fitOnce);
 
 // ===== 규칙 =====
 const rules = Array.from({ length: NC }, () => new Array(NC).fill(0));
