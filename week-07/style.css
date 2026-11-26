@@ -10,7 +10,10 @@ h2{margin:0 0 8px;font-size:1.05rem}
 nav{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 #login-slot{padding:6px 12px;border:1px dashed #999;border-radius:6px;color:#666;font-size:.9rem}
 main{padding:16px;max-width:1100px;margin:0 auto}
-.back{display:inline-block;margin-bottom:6px;text-decoration:none;color:#555}
+.back{display:inline-flex;align-items:center;gap:6px;margin-bottom:8px;padding:9px 16px;min-height:40px;border:2px solid #2b6cb0;border-radius:999px;background:#fff;color:#2b6cb0;font-weight:bold;text-decoration:none;box-shadow:0 2px 0 #2b6cb0;cursor:pointer;transition:transform .12s,box-shadow .12s,background .12s}
+.back:hover{background:#eaf4ff}
+.back:active{transform:translateY(2px);box-shadow:0 0 0 #2b6cb0}
+.back:focus-visible{outline:3px solid #f6ad55;outline-offset:2px}
 
 input,button{font:inherit}
 button,.btn{padding:8px 12px;border:1px solid #888;border-radius:6px;background:#fff;color:inherit;cursor:pointer;text-decoration:none;font-size:.95rem;min-height:40px;display:inline-flex;align-items:center}

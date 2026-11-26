@@ -23,15 +23,17 @@ const views = { gallery: $("view-gallery"), draw: $("view-draw"), profile: $("vi
 // - 처음에는 서서히 움직이기 시작해서 점점 빨라진다.
 const EASE = "cubic-bezier(.7, 0, .3, 1)";
 const DURATION = 480;   // 한 요소가 움직이는 시간(ms)
-const STEP = 35;        // 다음 요소가 늦게 출발하는 간격(ms)
-const MAX_DELAY = 280;  // 아무리 많아도 이 이상은 늦지 않게
-const LEAN = 8;         // 기울어지는 정도(도)
+const STEP = 30;        // 다음 요소가 늦게 출발하는 간격(ms)
+const MAX_DELAY = 200;  // 아무리 많아도 이 이상은 늦지 않게
+const LEAN = 9;         // 기울어지는 정도(도)
+const ENTER_AFTER = 0.8; // 나가는 요소가 이만큼(0~1) 나간 뒤에 들어오는 요소가 출발 (클수록 간격이 넓음)
 const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
 // mode: "out" = 밀려 나감 / "in" = 밀려 들어옴
 // fallback: 가운데쯤 있는 요소가 향할(올) 쪽 (1 = 오른쪽, -1 = 왼쪽)
 // bound: 움직이는 범위(없으면 화면 전체). 창 안에서는 범위를 주고 흐려지게 한다.
-function fly(els, mode, fallback, bound) {
+// baseDelay: 모든 요소가 이만큼(ms) 기다렸다가 움직이기 시작 (나가는 요소와 안 겹치게 할 때 씀)
+function fly(els, mode, fallback, bound, baseDelay = 0) {
   const b = bound || { left: 0, right: window.innerWidth };
   const mid = (b.left + b.right) / 2;
   const near = (b.right - b.left) * 0.05; // 정확히 가운데쯤인 요소만 "화면 방향" 을 따름
@@ -39,23 +41,34 @@ function fly(els, mode, fallback, bound) {
   const list = els
     .map((el) => ({ el, r: el.getBoundingClientRect() }))
     .filter(({ r }) => r.width > 0 && r.height > 0);
-  return list.map(({ el, r }, i) => {
+  const anims = [];
+  list.forEach(({ el, r }, i) => {
     const center = r.left + r.width / 2;
     const side = Math.abs(center - mid) < near ? fallback : (center > mid ? 1 : -1);
     const far = side > 0 ? b.right - r.left + 40 : -(r.right - b.left + 40);
-    const moving = mode === "out" ? side : -side;            // 실제로 움직이는 방향
-    const away = `translateX(${far}px) skewX(${moving > 0 ? -LEAN : LEAN}deg)`;
-    const home = "translateX(0px) skewX(0deg)";
-    const frames = mode === "out"
-      ? [{ transform: home, opacity: 1 }, { transform: away, opacity: fade ? 0 : 1 }]
-      : [{ transform: away, opacity: fade ? 0 : 1 }, { transform: home, opacity: 1 }];
-    return el.animate(frames, {
+    const moving = mode === "out" ? side : -side; // 실제로 움직이는 방향
+    const timing = {
       duration: DURATION,
-      delay: Math.min(i * STEP, MAX_DELAY),
-      easing: EASE,
+      delay: baseDelay + Math.min(i * STEP, MAX_DELAY),
       fill: mode === "out" ? "forwards" : "backwards",
-    });
+    };
+    // 위치: 처음에는 서서히 출발해서 점점 빨라짐
+    const place = mode === "out"
+      ? [{ translate: "0px 0px", opacity: 1 }, { translate: `${far}px 0px`, opacity: fade ? 0 : 1 }]
+      : [{ translate: `${far}px 0px`, opacity: fade ? 0 : 1 }, { translate: "0px 0px", opacity: 1 }];
+    anims.push(el.animate(place, { ...timing, easing: EASE }));
+    // 기울기: 움직이는 쪽으로 기울었다가(가운데쯤에서 가장 많이) 도착하면 다시 똑바로
+    const tilt = moving > 0 ? LEAN : -LEAN;
+    anims.push(el.animate(
+      [
+        { rotate: "0deg", transformOrigin: "50% 100%" },
+        { rotate: `${tilt}deg`, transformOrigin: "50% 100%", offset: 0.45 },
+        { rotate: "0deg", transformOrigin: "50% 100%" },
+      ],
+      { ...timing, easing: "ease-in-out" }
+    ));
   });
+  return anims;
 }
 const allDone = (anims) => Promise.all(anims.map((a) => a.finished.catch(() => {})));
 
@@ -84,9 +97,12 @@ function show(name) {
   const forward = depth[name] >= depth[from];
   for (const [k, el] of Object.entries(views)) el.hidden = k !== name && k !== from;
   prev.classList.add("leaving-view"); // 겹쳐 놓고 같이 움직이기
+  const outEls = targets(prev);
+  const outLast = Math.min((outEls.length - 1) * STEP, MAX_DELAY); // 나가는 마지막 요소의 출발 시각
+  const gap = outLast + DURATION * ENTER_AFTER;                    // 이때부터 들어오기 시작 → 서로 안 겹침
   const anims = [
-    ...fly(targets(prev), "out", forward ? -1 : 1),
-    ...fly(targets(next), "in", forward ? 1 : -1),
+    ...fly(outEls, "out", forward ? -1 : 1),
+    ...fly(targets(next), "in", forward ? 1 : -1, null, gap),
   ];
   let timer = null;
   const mine = () => {
@@ -98,7 +114,7 @@ function show(name) {
   };
   finishSlide = mine;
   allDone(anims).then(() => { if (finishSlide === mine) mine(); });
-  timer = setTimeout(() => { if (finishSlide === mine) mine(); }, 1800); // 혹시 끝 신호가 안 와도 정리
+  timer = setTimeout(() => { if (finishSlide === mine) mine(); }, 3500); // 혹시 끝 신호가 안 와도 정리
 }
 
 function go(hash) {
