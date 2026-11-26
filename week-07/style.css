@@ -98,12 +98,15 @@ dialog h3{margin:0 0 6px}
 }
 
 /* ===== 화면이 바뀔 때: 요소들이 옆으로 밀려 나가고 들어옴 (움직임은 app.js 의 fly) ===== */
+html{scrollbar-gutter:stable} /* 스크롤바 자리를 늘 비워 둬서 폭이 안 변함 */
 body{overflow-x:hidden}
 #stage{position:relative}
+.view{display:flow-root} /* 화면 안쪽 여백이 밖으로 새지 않게 → 움직일 때 높이가 안 바뀜 */
 .leaving-view{position:absolute;top:0;left:0;width:100%}
 
 /* 그림 크게 보는 창: 안의 요소는 app.js 가 움직이고, 창 자체는 흐려졌다 나타남 */
 dialog{overflow-x:hidden}
+dialog.moving,dialog.leaving{overflow:hidden}
 dialog[open]{animation:fadeIn .35s ease-out both}
 dialog[open]::backdrop{animation:fadeIn .35s ease-out both}
 dialog.leaving{animation:fadeOut .5s ease-in .15s both}

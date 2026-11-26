@@ -15,6 +15,7 @@ const detail = $("detail");
 //   #/        갤러리
 //   #/draw    그리기
 //   #/u/이름   그 사람의 공간
+const stage = $("stage");
 const views = { gallery: $("view-gallery"), draw: $("view-draw"), profile: $("view-profile") };
 // ================= 움직임 (밀려 나가고 들어오기) =================
 // - 오른쪽에 있는 요소는 오른쪽으로, 왼쪽에 있는 요소는 왼쪽으로 밀려 나가고,
@@ -96,6 +97,8 @@ function show(name) {
   }
   const forward = depth[name] >= depth[from];
   for (const [k, el] of Object.entries(views)) el.hidden = k !== name && k !== from;
+  // 움직이는 동안 두 화면 중 큰 쪽 높이로 고정 → 이전 화면이 떠 있어도 페이지 길이(스크롤바)가 변하지 않음
+  stage.style.minHeight = Math.max(prev.offsetHeight, next.offsetHeight) + "px";
   prev.classList.add("leaving-view"); // 겹쳐 놓고 같이 움직이기
   const outEls = targets(prev);
   const outLast = Math.min((outEls.length - 1) * STEP, MAX_DELAY); // 나가는 마지막 요소의 출발 시각
@@ -110,6 +113,7 @@ function show(name) {
     anims.forEach((a) => a.cancel());
     prev.hidden = true;
     prev.classList.remove("leaving-view");
+    stage.style.minHeight = "";
     if (finishSlide === mine) finishSlide = null;
   };
   finishSlide = mine;
@@ -289,7 +293,10 @@ function openDetail(id) {
   if (detail.open) return;
   detail.showModal();
   const dr = detail.getBoundingClientRect();
-  fly([...detail.children], "in", 1, { left: dr.left, right: dr.right }); // 창 안의 요소들이 오른쪽에서 밀려 들어옴
+  detail.classList.add("moving");
+  const anims = fly([...detail.children], "in", 1, { left: dr.left, right: dr.right }); // 창 안의 요소들이 오른쪽에서 밀려 들어옴
+  allDone(anims).then(() => detail.classList.remove("moving"));
+  setTimeout(() => detail.classList.remove("moving"), 1800);
 }
 detail.addEventListener("close", () => { openId = null; if (closing) closing(); });
 // 창 바깥(어두운 곳)을 누르면 닫기
