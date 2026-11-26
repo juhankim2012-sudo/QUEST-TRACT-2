@@ -16,9 +16,41 @@ const detail = $("detail");
 //   #/draw    그리기
 //   #/u/이름   그 사람의 공간
 const views = { gallery: $("view-gallery"), draw: $("view-draw"), profile: $("view-profile") };
+// 깊이: 갤러리(0) → 그리기·사람의 공간(1). 깊어지면 오른쪽에서 들어오고, 돌아가면 왼쪽에서 들어온다.
+const depth = { gallery: 0, draw: 1, profile: 1 };
+const reduceMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+let current = null;
+let finishSlide = null;
+const SLIDE_CLASSES = ["leave-l", "leave-r", "enter-l", "enter-r"];
+
 function show(name) {
-  for (const [k, el] of Object.entries(views)) el.hidden = k !== name;
+  if (finishSlide) finishSlide(); // 움직이는 중이면 먼저 끝내기
+  const next = views[name];
+  const prev = current ? views[current] : null;
+  const from = current;
+  current = name;
   window.scrollTo(0, 0);
+
+  if (!prev || from === name || reduceMotion()) {
+    for (const [k, el] of Object.entries(views)) el.hidden = k !== name;
+    return;
+  }
+  const forward = depth[name] >= depth[from];
+  for (const [k, el] of Object.entries(views)) el.hidden = k !== name && k !== from;
+  prev.classList.add(forward ? "leave-l" : "leave-r"); // 지금 화면은 밀려 나가고
+  next.classList.add(forward ? "enter-r" : "enter-l"); // 새 화면은 밀려 들어옴
+  let timer = null;
+  finishSlide = () => {
+    clearTimeout(timer);
+    prev.hidden = true;
+    prev.classList.remove(...SLIDE_CLASSES);
+    next.classList.remove(...SLIDE_CLASSES);
+    next.removeEventListener("animationend", onEnd);
+    finishSlide = null;
+  };
+  const onEnd = (e) => { if (e.target === next) finishSlide && finishSlide(); };
+  next.addEventListener("animationend", onEnd);
+  timer = setTimeout(() => finishSlide && finishSlide(), 700); // 혹시 끝 신호가 안 와도 정리
 }
 function go(hash) {
   if (location.hash === hash) route(); else location.hash = hash;
@@ -192,7 +224,24 @@ function openDetail(id) {
 }
 detail.addEventListener("close", () => { openId = null; });
 // 창 바깥(어두운 곳)을 누르면 닫기
-detail.addEventListener("click", (e) => { if (e.target === detail) detail.close(); });
+detail.addEventListener("click", (e) => { if (e.target === detail) closeDetail(); });
+detail.addEventListener("cancel", (e) => { e.preventDefault(); closeDetail(); }); // Esc 키
+
+// 닫을 때도 옆으로 밀려 나가는 모션을 보여 준 뒤 닫기
+function closeDetail() {
+  if (!detail.open) return;
+  if (reduceMotion() || detail.classList.contains("leaving")) { detail.classList.remove("leaving"); detail.close(); return; }
+  detail.classList.add("leaving");
+  let done = false;
+  const end = () => {
+    if (done) return;
+    done = true;
+    detail.classList.remove("leaving");
+    if (detail.open) detail.close();
+  };
+  detail.addEventListener("animationend", end, { once: true });
+  setTimeout(end, 500);
+}
 
 function renderDetail() {
   const d = Store.list().find((x) => x.id === openId);
@@ -242,11 +291,11 @@ function renderDetail() {
   del.onclick = () => {
     if (!confirm("이 그림을 지울까요?")) return;
     Store.removeDrawing(d.id);
-    detail.close();
+    closeDetail();
     refreshBehind();
   };
   const close = document.createElement("button"); close.type = "button"; close.textContent = "닫기";
-  close.onclick = () => detail.close();
+  close.onclick = () => closeDetail();
   actions.append(dl, del, close);
 
   detail.append(form, err, actions);

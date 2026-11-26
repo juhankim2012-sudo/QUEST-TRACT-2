@@ -4,9 +4,13 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>그림 그려서 올리는 사이트</title>
-<link rel="stylesheet" href="style.css?v=5">
+<link rel="stylesheet" href="style.css?v=6">
 </head>
 <body>
+<div id="sky" aria-hidden="true">
+  <i class="cloud c1"></i><i class="cloud c2"></i><i class="cloud c3"></i><i class="cloud c4"></i>
+  <i class="bubble b1"></i><i class="bubble b2"></i><i class="bubble b3"></i><i class="bubble b4"></i><i class="bubble b5"></i><i class="bubble b6"></i><i class="bubble b7"></i><i class="bubble b8"></i>
+</div>
 <header>
   <h1><a href="#/">그림 그려서 올리는 사이트</a></h1>
   <nav>
@@ -16,8 +20,9 @@
 </header>
 
 <main>
+<div id="stage">
   <!-- 화면 1: 갤러리 -->
-  <section id="view-gallery">
+  <section class="view" id="view-gallery">
     <h2>갤러리</h2>
     <p class="note">지금은 이 기기의 브라우저에만 저장돼요. 다른 사람과는 아직 나눌 수 없어요.</p>
     <p id="toast" role="status"></p>
@@ -25,7 +30,7 @@
   </section>
 
   <!-- 화면 2: 그리기 -->
-  <section id="view-draw" hidden>
+  <section class="view" id="view-draw" hidden>
     <p><a href="#/" class="back">← 갤러리로</a></p>
     <h2>그림 그리기</h2>
     <canvas id="canvas" width="480" height="360" aria-label="그림판"></canvas>
@@ -48,17 +53,18 @@
   </section>
 
   <!-- 화면 3: 한 사람의 공간 (이름을 누르면 열림) -->
-  <section id="view-profile" hidden>
+  <section class="view" id="view-profile" hidden>
     <p><a href="#/" class="back">← 갤러리로</a></p>
     <div id="profile-head"></div>
     <div id="profile-grid" class="grid"></div>
   </section>
+</div>
 </main>
 
 <!-- 그림 하나를 크게 보고 댓글 쓰는 창 -->
 <dialog id="detail"></dialog>
 
-<script src="storage.js?v=5"></script>
-<script src="app.js?v=5"></script>
+<script src="storage.js?v=6"></script>
+<script src="app.js?v=6"></script>
 </body>
 </html>
