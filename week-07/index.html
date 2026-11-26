@@ -3,28 +3,33 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>그림 나눔터</title>
+<title>그림 그려서 올리는 사이트</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <header>
-  <h1>그림 나눔터</h1>
-  <!-- 로그인 단추 자리: 아직 만들지 않음 -->
-  <div id="login-slot"></div>
+  <h1>그림 그려서 올리는 사이트</h1>
+  <div id="login-slot">로그인 자리</div>
 </header>
 
 <main>
   <section id="draw">
     <h2>그림 그리기</h2>
-    <canvas id="canvas" width="480" height="360"></canvas>
+    <canvas id="canvas" width="480" height="360" aria-label="그림판"></canvas>
     <div class="tools">
       <label>색 <input type="color" id="color" value="#222222"></label>
       <label>굵기 <input type="range" id="size" min="1" max="30" value="5"></label>
-      <button id="clear" type="button">지우기</button>
     </div>
     <div class="tools">
+      <button id="pen" type="button" aria-pressed="true">연필</button>
+      <button id="eraser" type="button" aria-pressed="false">지우개</button>
+      <button id="undo" type="button">되돌리기</button>
+      <button id="clear" type="button">전부 지우기</button>
+    </div>
+    <div class="tools">
+      <input id="name" placeholder="내 이름" maxlength="20" autocomplete="nickname">
       <input id="title" placeholder="그림 제목" maxlength="30">
-      <button id="post" type="button">갤러리에 올리기</button>
+      <button id="post" type="button">올리기</button>
     </div>
     <p id="msg" role="status"></p>
   </section>
