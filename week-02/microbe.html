@@ -24,8 +24,8 @@
   <button data-f="sim" class="on">🎲 무작위 생태</button>
   <button data-f="box">🧪 샌드박스</button>
 </div>
-<iframe id="sim" src="microbe-sim.html" title="무작위 생태"></iframe>
-<iframe id="box" class="off" src="microbe-sandbox.html" title="샌드박스"></iframe>
+<iframe id="sim" src="microbe-sim.html?v=3" title="무작위 생태"></iframe>
+<iframe id="box" class="off" src="microbe-sandbox.html?v=3" title="샌드박스"></iframe>
 <script>
 const frames = { sim: document.getElementById('sim'), box: document.getElementById('box') };
 document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => {
