@@ -84,7 +84,14 @@ const STEPS = [-1, -0.5, 0, 0.5, 1]; // 칸을 누를 때 바뀌는 값
 const canvas = document.getElementById('c');
 const ctx = canvas.getContext('2d');
 let W, H;
-function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+// 탭 안에서 숨겨지면 창 크기가 0 이 되는데, 그때 W=0 으로 계산하면 구슬 위치가 NaN(없는 값)이 되어 영영 안 보임
+// → 크기가 0 이면 무시하고, 0 인 채로 구슬을 만들었다면 크기가 생길 때 다시 만든다
+let needRespawn = false;
+function resize() {
+  if (!innerWidth || !innerHeight) return;
+  W = canvas.width = innerWidth; H = canvas.height = innerHeight;
+  if (needRespawn) { needRespawn = false; spawn(); }
+}
 addEventListener('resize', resize);
 resize();
 
@@ -98,6 +105,7 @@ function randomRules() {
 // ===== 구슬 =====
 let px, py, vx, vy, kind;
 function spawn() {
+  if (!(W > 0 && H > 0)) { needRespawn = true; W = W || 1; H = H || 1; }
   px = new Float32Array(COUNT); py = new Float32Array(COUNT);
   vx = new Float32Array(COUNT); vy = new Float32Array(COUNT);
   kind = new Uint8Array(COUNT);
