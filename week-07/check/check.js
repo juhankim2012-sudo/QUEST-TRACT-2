@@ -1,6 +1,6 @@
-// week-06 확인 도구
-// 쓰는 법:  node week-06/check/check.js            (week-06 폴더 전체 확인)
-//          node week-06/check/check.js week-06/날씨앱   (한 폴더만 확인)
+// week-07 확인 도구
+// 쓰는 법:  node week-07/check/check.js            (week-07 폴더 전체 확인)
+//          node week-07/check/check.js week-07/폴더이름   (한 폴더만 확인)
 // 따로 설치할 것 없음. Node.js 만 있으면 됨.
 
 const fs = require("fs");
@@ -100,7 +100,7 @@ if (!privateFound) ok("전화번호·주소·학교 이름으로 보이는 것�
 // ---------- 앱 찾기 ----------
 const htmlFiles = all.filter((f) => /\.html?$/i.test(f));
 if (htmlFiles.length === 0) {
-  title("3~5. 앱 확인");
+  title("3~7. 앱 확인");
   warn("아직 HTML 파일이 없어서 앱 확인은 건너뜀", "앱을 만든 뒤 다시 돌려 보기");
   finish();
 }
@@ -115,84 +115,109 @@ for (const f of htmlFiles) {
   /<html[^>]+lang=["']ko["']/i.test(html) ? ok(name + ': 한국어 페이지(lang="ko")') : warn(name + ': <html lang="ko"> 가 아님');
 }
 
-// ---------- 4. 정보 받아 오기 ----------
-title("4. 바깥 정보 받아 오기와 실패했을 때");
-const codeFiles = all.filter((f) => /\.(html?|m?js)$/i.test(f) && !/(^|[\\/])(sw|service-worker)\.js$/i.test(f));
-let anyFetch = false;
-for (const f of codeFiles) {
-  const text = read(f);
-  if (!/\bfetch\s*\(|XMLHttpRequest/.test(text)) continue;
-  anyFetch = true;
-  const name = rel(f);
-  /\.catch\s*\(|\bcatch\s*\(|\bcatch\s*\{/.test(text)
-    ? ok(name + ": 받아 오기가 실패했을 때 잡는 부분(catch) 있음")
-    : bad(name + ": 받아 오기가 실패했을 때 잡는 부분(catch) 없음", "실패하면 빈 화면 대신 까닭을 보여 주기 (예: 인터넷이 끊겼어요)");
-  /\.ok\b|\.status\b/.test(text)
-    ? ok(name + ": 서버 응답이 정상인지(ok/status) 확인함")
-    : warn(name + ": 서버가 오류를 돌려줘도 모를 수 있음", "if (!res.ok) 로 확인하고 까닭 보여 주기");
-  /navigator\.onLine|offline/.test(text)
-    ? ok(name + ": 인터넷이 끊긴 경우도 생각함")
-    : warn(name + ": 인터넷이 끊겼을 때 따로 알려 주지 않음", "navigator.onLine 이나 catch 에서 '인터넷 연결을 확인해 주세요' 보여 주기");
-  const httpUrls = text.match(/["'`]http:\/\/(?!localhost|127\.0\.0\.1)[^"'`]+/g);
-  httpUrls
-    ? bad(name + ": https 가 아닌 주소가 있음 (" + httpUrls[0].slice(1, 60) + ")", "폰 앱에서는 https 주소만 됨")
-    : ok(name + ": 바깥 주소가 모두 https");
-}
-if (!anyFetch) bad("fetch 로 바깥 정보를 받아 오는 코드가 없음", "이번 주 목표: API 로 오늘 정보를 받아 오기");
-
-// ---------- 5. 폰에 설치되는 앱 ----------
-title("5. 폰에 설치되는 앱(PWA)");
-const mainHtml = htmlFiles.find((f) => /index\.html?$/i.test(f)) || htmlFiles[0];
-const mainText = read(mainHtml);
-const appDir = path.dirname(mainHtml);
-console.log("  (기준 화면: " + rel(mainHtml) + ")");
-
-const linkM = mainText.match(/<link[^>]+rel=["']manifest["'][^>]*>/i);
-const hrefM = linkM && linkM[0].match(/href=["']([^"']+)["']/i);
-if (!hrefM) {
-  bad("manifest 연결이 없음", '<link rel="manifest" href="manifest.json"> 넣기');
+// ---------- 4. 저장하는 코드는 한곳에 ----------
+title("4. 저장하는 코드가 한곳(storage.js)에 모여 있는가");
+const codeFiles = all.filter((f) => /\.(html?|m?js)$/i.test(f));
+const STORAGE_FILE = "storage.js";
+const STORAGE_RE = /\b(localStorage|sessionStorage|indexedDB)\b|document\.cookie/;
+const storageFile = codeFiles.find((f) => path.basename(f) === STORAGE_FILE);
+if (!storageFile) {
+  bad(STORAGE_FILE + " 파일이 없음", "저장하는 코드를 " + STORAGE_FILE + " 한 파일에 모으기");
 } else {
-  const mPath = path.join(appDir, hrefM[1].split("?")[0]);
-  if (!fs.existsSync(mPath)) {
-    bad("manifest 파일이 없음: " + hrefM[1]);
-  } else {
-    let man = null;
-    try { man = JSON.parse(read(mPath)); ok("manifest 파일 읽힘"); }
-    catch (e) { bad("manifest 파일의 모양이 틀림 (JSON 오류): " + e.message); }
-    if (man) {
-      man.name || man.short_name ? ok("앱 이름: " + (man.short_name || man.name)) : bad("manifest 에 앱 이름(name) 없음");
-      man.start_url ? ok("시작 주소(start_url) 있음") : bad("manifest 에 start_url 없음", '"start_url": "./" 넣기');
-      ["standalone", "fullscreen", "minimal-ui"].includes(man.display) ? ok("앱처럼 보이기(display: " + man.display + ")") : bad("display 가 standalone 이 아님", '"display": "standalone" 넣기');
-      const icons = Array.isArray(man.icons) ? man.icons : [];
-      for (const size of ["192x192", "512x512"]) {
-        const icon = icons.find((i) => (i.sizes || "").split(/\s+/).includes(size));
-        if (!icon) { bad(size + " 아이콘이 manifest 에 없음"); continue; }
-        fs.existsSync(path.join(path.dirname(mPath), icon.src.split("?")[0]))
-          ? ok(size + " 아이콘 파일 있음 (" + icon.src + ")")
-          : bad(size + " 아이콘 파일이 없음: " + icon.src);
-      }
+  /\b(localStorage)\b/.test(read(storageFile))
+    ? ok(STORAGE_FILE + " 안에서 이 기기의 브라우저(localStorage)에 저장함")
+    : warn(STORAGE_FILE + " 에 localStorage 를 쓰는 곳이 없음", "지금은 이 기기의 브라우저에 저장하기");
+  let leak = false;
+  for (const f of codeFiles) {
+    if (f === storageFile) continue;
+    const text = read(f);
+    const m = STORAGE_RE.exec(text);
+    if (m) {
+      leak = true;
+      bad(`${rel(f)} ${lineOf(text, m.index)}번째 줄: 저장하는 코드(${m[0]})가 ${STORAGE_FILE} 밖에 있음`, STORAGE_FILE + " 안으로 옮기고 여기서는 Store 함수를 부르기");
     }
   }
+  if (!leak) ok("저장하는 코드가 " + STORAGE_FILE + " 밖에는 없음");
+}
+// 지금은 바깥 서버로 보내지 않기 (보관함은 나중에)
+let sends = false;
+for (const f of codeFiles) {
+  const text = read(f);
+  const m = /\bfetch\s*\(|XMLHttpRequest|WebSocket|navigator\.sendBeacon/.exec(text);
+  if (m) { sends = true; bad(`${rel(f)} ${lineOf(text, m.index)}번째 줄: 바깥으로 보내거나 받는 코드(${m[0]})가 있음`, "보관함(서버)은 마지막에 붙이기. 지금은 이 기기에만 저장"); }
+}
+if (!sends) ok("바깥 서버로 보내는 코드가 없음 (지금은 이 기기에만 저장)");
+
+// ---------- 5. 로그인은 자리만 ----------
+title("5. 로그인은 아직 안 만들고 자리만 있는가");
+const mainHtml = htmlFiles.find((f) => /index\.html?$/i.test(f)) || htmlFiles[0];
+const mainText = read(mainHtml);
+console.log("  (기준 화면: " + rel(mainHtml) + ")");
+/id=["']login-slot["'][^>]*>\s*로그인 자리\s*</.test(mainText)
+  ? ok('화면 위쪽에 "로그인 자리" 가 있음')
+  : bad('"로그인 자리" 라고만 쓴 칸(id="login-slot")이 없음', '<div id="login-slot">로그인 자리</div> 넣기');
+let loginBuilt = false;
+for (const f of htmlFiles) {
+  const text = read(f);
+  const m = /type=["']password["']|firebase|supabase|auth0|oauth|signInWith|<button[^>]*>\s*로그인\s*<\/button>/i.exec(text);
+  if (m) { loginBuilt = true; bad(`${rel(f)} ${lineOf(text, m.index)}번째 줄: 로그인을 벌써 만든 것 같음 (${m[0].slice(0, 30)})`, "로그인은 마지막에 붙이기. 지금은 자리만"); }
+}
+for (const f of codeFiles.filter((x) => /\.m?js$/i.test(x))) {
+  const text = read(f);
+  const m = /firebase|supabase|auth0|oauth|signInWith|\blogin\s*\(/i.exec(text);
+  if (m) { loginBuilt = true; bad(`${rel(f)} ${lineOf(text, m.index)}번째 줄: 로그인을 벌써 만든 것 같음 (${m[0]})`, "로그인은 마지막에 붙이기. 지금은 자리만"); }
+}
+if (!loginBuilt) ok("로그인 코드는 아직 없음");
+
+// ---------- 6. 폰과 컴퓨터 어디서나 (반응형) ----------
+title("6. 화면 폭에 맞춰 보이는가 (반응형)");
+const cssFiles = all.filter((f) => /\.css$/i.test(f));
+let styleText = [...mainText.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)].map((m) => m[1]).join("\n");
+for (const f of cssFiles) styleText += "\n" + read(f);
+if (!styleText.trim()) {
+  warn("스타일(CSS)을 찾지 못함", "style.css 를 만들어 연결하기");
+} else {
+  /@media|flex-wrap\s*:\s*wrap|grid-template-columns[^;]*(auto-fit|auto-fill)/i.test(styleText)
+    ? ok("화면 폭에 따라 바뀌는 규칙이 있음 (@media 또는 줄바꿈 flex/grid)")
+    : bad("화면 폭에 따라 바뀌는 규칙이 없음", "@media (max-width: 480px) 나 flex-wrap: wrap 쓰기");
+  /(max-width|width)\s*:\s*100%/i.test(styleText)
+    ? ok("그림·그림판이 화면 폭에 맞춤 (width: 100%)")
+    : warn("width: 100% 가 없어서 큰 그림이 잘릴 수 있음", "canvas, img 에 width: 100%; height: auto; 주기");
+  const fixed = styleText.match(/(^|[;{\s])width\s*:\s*(\d{4,})px/gi);
+  fixed ? warn("1000px 이상 고정 너비가 있음: " + fixed[0].trim(), "max-width 로 바꾸기") : ok("아주 큰 고정 너비 없음");
 }
 
-// 화면이 불러오는 내 스크립트 파일(app.js 등)도 같이 읽기
-let mainWithScripts = mainText;
-for (const s of mainText.matchAll(/<script[^>]+src=["']([^"':]+)["']/gi)) {
-  const sp = path.join(appDir, s[1].split("?")[0]);
-  if (fs.existsSync(sp)) mainWithScripts += "\n" + read(sp);
-}
-const regM = mainWithScripts.match(/serviceWorker\.register\(\s*["'`]([^"'`]+)["'`]/);
-if (!regM) {
-  bad("서비스 워커 등록이 없음", "navigator.serviceWorker.register('sw.js') 넣기");
+// ---------- 7. 기능 표와 코드가 맞는가 ----------
+title("7. CLAUDE.md 기능 표에서 '넣었음' 인 기능이 코드에 있는가");
+const claudeMd = path.join(target, "CLAUDE.md");
+// 기능 이름 → 코드에 있어야 하는 흔적
+const FEATURE_HINTS = {
+  "이름 기억하기": /getName|setName/,
+  "되돌리기 · 지우개": /undo|되돌리기/,
+  "그림 내려받기": /\.download\s*=|download=/,
+  "이름별로 모아 보기": /filter\s*\(|byAuthor|이름별/,
+  "나쁜 말 가리기": /\*\*\*|badWords|나쁜 말/,
+  "직선 · 동그라미 · 네모 도구": /strokeRect|\.arc\s*\(|rect\s*\(|직선/,
+  "채우기 통": /floodFill|flood|채우기/,
+  "남의 그림 이어 그리기": /이어 그리기|continueDrawing|drawImage/,
+};
+if (!fs.existsSync(claudeMd)) {
+  warn("week-07/CLAUDE.md 가 없어서 기능 표를 못 봄");
 } else {
-  const swPath = path.join(appDir, regM[1].split("?")[0]);
-  if (!fs.existsSync(swPath)) bad("서비스 워커 파일이 없음: " + regM[1]);
-  else {
-    ok("서비스 워커 파일 있음 (" + regM[1] + ")");
-    /addEventListener\(\s*["']fetch["']|onfetch/.test(read(swPath))
-      ? ok("서비스 워커가 fetch 를 처리함 (설치 조건)")
-      : warn("서비스 워커에 fetch 처리가 없음", "self.addEventListener('fetch', ...) 넣기");
+  const rows = read(claudeMd).split("\n").filter((l) => /^\|\s*\d+\s*\|/.test(l));
+  if (rows.length === 0) warn('CLAUDE.md 에 "기능 표" 가 없음', "번호 · 기능 · 좋은 점 · 어려움 · 상태 표를 적어 두기");
+  const allCode = codeFiles.map(read).join("\n");
+  let done = 0;
+  for (const row of rows) {
+    const cells = row.split("|").map((c) => c.trim());
+    const no = cells[1], name = cells[2], state = cells[cells.length - 2];
+    if (!/넣었음/.test(state)) continue;
+    done++;
+    const hint = FEATURE_HINTS[name];
+    if (!hint) { warn(`${no}번 ${name}: 코드에서 찾을 흔적을 모름 (이 도구에 목록이 없음)`); continue; }
+    hint.test(allCode) ? ok(`${no}번 ${name}: 코드에 있음`) : bad(`${no}번 ${name}: '넣었음' 이라고 적었는데 코드에서 못 찾음`, "기능을 넣거나 표에서 '아직' 으로 바꾸기");
   }
+  if (rows.length && done === 0) warn("'넣었음' 으로 표시된 기능이 아직 없음");
 }
 
 finish();
@@ -201,7 +226,7 @@ function finish() {
   console.log("\n────────────────────────");
   if (fails === 0) console.log(`결과: 통과 ✅ (주의 ${warns}개)`);
   else console.log(`결과: 고칠 것 ${fails}개 ❌, 주의 ${warns}개`);
-  console.log("※ 이 도구는 파일을 읽어서 확인만 함. 진짜로 폰에 설치되는지,");
-  console.log("  인터넷을 끄면 까닭이 나오는지는 직접 해 봐야 알 수 있음.");
+  console.log("※ 이 도구는 파일을 읽어서 확인만 함. 그림이 실제로 그려지는지,");
+  console.log("  폰에서 잘리지 않는지는 직접 열어 봐야 알 수 있음.");
   process.exit(fails === 0 ? 0 : 1);
 }
