@@ -1,32 +1,68 @@
 *{box-sizing:border-box}
+[hidden]{display:none !important}
 body{font-family:system-ui,sans-serif;margin:0;background:#f6f4ef;color:#222;line-height:1.4}
+a{color:inherit}
 header{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px;padding:10px 16px;background:#fff;border-bottom:1px solid #ddd}
 h1{margin:0;font-size:1.2rem}
+h1 a{text-decoration:none}
 h2{margin:0 0 8px;font-size:1.05rem}
+nav{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 #login-slot{padding:6px 12px;border:1px dashed #999;border-radius:6px;color:#666;font-size:.9rem}
-main{display:flex;flex-wrap:wrap;gap:20px;padding:16px;max-width:1100px;margin:0 auto}
-section{flex:1 1 320px;min-width:0}
-canvas{display:block;width:100%;height:auto;aspect-ratio:4/3;background:#fff;border:1px solid #bbb;touch-action:none;cursor:crosshair}
-.tools{display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap}
-.tools input[type=range]{width:110px}
+main{padding:16px;max-width:1100px;margin:0 auto}
+.back{display:inline-block;margin-bottom:6px;text-decoration:none;color:#555}
+
 input,button{font:inherit}
-#name,#title,.cform input{padding:8px;border:1px solid #bbb;border-radius:6px;min-width:0}
-#name{flex:1 1 90px}
-#title{flex:2 1 120px}
 button,.btn{padding:8px 12px;border:1px solid #888;border-radius:6px;background:#fff;color:inherit;cursor:pointer;text-decoration:none;font-size:.95rem;min-height:40px;display:inline-flex;align-items:center}
 button:disabled{opacity:.4;cursor:default}
 button[aria-pressed=true]{background:#222;color:#fff}
+.primary{background:#2b6cb0;border-color:#2b6cb0;color:#fff;font-weight:bold}
+
+/* 그리기 화면 */
+#view-draw{max-width:640px;margin:0 auto}
+canvas{display:block;width:100%;height:auto;aspect-ratio:4/3;background:#fff;border:1px solid #bbb;touch-action:none;cursor:crosshair}
+.tools{display:flex;gap:8px;align-items:center;margin:8px 0;flex-wrap:wrap}
+.tools input[type=range]{width:110px}
+#name,#title,.cform input{padding:8px;border:1px solid #bbb;border-radius:6px;min-width:0}
+#name{flex:1 1 90px}
+#title{flex:2 1 120px}
 #msg{min-height:1.4em;margin:4px 0;color:#333}
 .note{font-size:.85rem;color:#666;margin:0 0 10px}
-.card{background:#fff;border:1px solid #ddd;border-radius:8px;padding:10px;margin-bottom:14px}
-.card img{display:block;width:100%;height:auto;border:1px solid #eee}
-.card h3{margin:0 0 6px;font-size:1rem}
-.meta{color:#777;font-size:.8rem;margin-top:4px}
-#filter:not(:empty){display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:10px;padding:8px;background:#fff8d6;border:1px solid #e6d98a;border-radius:8px;font-size:.9rem}
-.who{min-height:0;padding:2px 8px;font-size:.8rem;font-weight:bold;border-radius:12px;background:#eef;border-color:#99c}
+#toast{min-height:1.4em;margin:0 0 8px;color:#276749;font-weight:bold}
+.empty{color:#666;padding:20px 0}
+
+/* 그림 모아 보기: 한 줄에 4개 → 3개 → 2개 */
+.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.item{background:#fff;border:1px solid #ddd;border-radius:8px;padding:8px;min-width:0}
+.thumb{display:block;width:100%;padding:0;border:1px solid #eee;background:#fff;min-height:0;border-radius:4px;overflow:hidden}
+.thumb img{display:block;width:100%;height:auto;aspect-ratio:4/3;object-fit:cover}
+.item h3{margin:6px 0 2px;font-size:.95rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sub{display:flex;justify-content:space-between;align-items:center;gap:6px;font-size:.8rem;color:#777}
+.who{min-height:0;padding:2px 8px;font-size:.8rem;font-weight:bold;border-radius:12px;background:#eef;border-color:#99c;max-width:70%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block}
+
+/* 한 사람의 공간 */
+#profile-head{display:flex;align-items:center;gap:14px;padding:16px;margin-bottom:14px;background:#fff;border:1px solid #ddd;border-radius:10px}
+.avatar{flex:none;width:64px;height:64px;border-radius:50%;background:#2b6cb0;color:#fff;font-size:1.8rem;font-weight:bold;display:flex;align-items:center;justify-content:center}
+#profile-head h2{margin:0;font-size:1.3rem;overflow-wrap:anywhere}
+#profile-head p{margin:2px 0 0;color:#666;font-size:.9rem}
+
+/* 그림 크게 보기 */
+dialog{width:min(560px,94vw);max-height:92vh;padding:14px;border:1px solid #888;border-radius:10px;overflow:auto}
+dialog::backdrop{background:rgba(0,0,0,.5)}
+dialog img{display:block;width:100%;height:auto;border:1px solid #eee}
+dialog h3{margin:0 0 6px}
+.meta{color:#777;font-size:.8rem;margin:6px 0}
 .comment{font-size:.9rem;padding:5px 0;border-top:1px dashed #ddd;overflow-wrap:anywhere}
 .comment small{color:#888}
-.cform{display:flex;gap:6px;margin-top:8px}
-.cform input{flex:1}
-.actions{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
-@media (max-width:480px){main{padding:10px}header{padding:8px 10px}}
+.cform{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.cform input{flex:1 1 100px}
+.cform .cname{flex:0 1 110px}
+.actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+
+@media (max-width:900px){.grid{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:560px){
+  .grid{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+  main{padding:10px}
+  header{padding:8px 10px}
+  #profile-head{padding:12px}
+  .avatar{width:52px;height:52px;font-size:1.5rem}
+}

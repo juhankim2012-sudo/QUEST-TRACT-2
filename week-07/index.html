@@ -4,16 +4,29 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>그림 그려서 올리는 사이트</title>
-<link rel="stylesheet" href="style.css?v=4">
+<link rel="stylesheet" href="style.css?v=5">
 </head>
 <body>
 <header>
-  <h1>그림 그려서 올리는 사이트</h1>
-  <div id="login-slot">로그인 자리</div>
+  <h1><a href="#/">그림 그려서 올리는 사이트</a></h1>
+  <nav>
+    <button id="go-draw" type="button" class="primary">그리기</button>
+    <div id="login-slot">로그인 자리</div>
+  </nav>
 </header>
 
 <main>
-  <section id="draw">
+  <!-- 화면 1: 갤러리 -->
+  <section id="view-gallery">
+    <h2>갤러리</h2>
+    <p class="note">지금은 이 기기의 브라우저에만 저장돼요. 다른 사람과는 아직 나눌 수 없어요.</p>
+    <p id="toast" role="status"></p>
+    <div id="grid" class="grid"></div>
+  </section>
+
+  <!-- 화면 2: 그리기 -->
+  <section id="view-draw" hidden>
+    <p><a href="#/" class="back">← 갤러리로</a></p>
     <h2>그림 그리기</h2>
     <canvas id="canvas" width="480" height="360" aria-label="그림판"></canvas>
     <div class="tools">
@@ -29,19 +42,23 @@
     <div class="tools">
       <input id="name" placeholder="내 이름" maxlength="20" autocomplete="nickname">
       <input id="title" placeholder="그림 제목" maxlength="30">
-      <button id="post" type="button">올리기</button>
+      <button id="post" type="button" class="primary">올리기</button>
     </div>
     <p id="msg" role="status"></p>
   </section>
 
-  <section id="gallery">
-    <h2>갤러리</h2>
-    <p class="note">지금은 이 기기의 브라우저에만 저장돼요. 다른 사람과는 아직 나눌 수 없어요.</p>
-    <div id="filter" role="status"></div>
-    <div id="list"></div>
+  <!-- 화면 3: 한 사람의 공간 (이름을 누르면 열림) -->
+  <section id="view-profile" hidden>
+    <p><a href="#/" class="back">← 갤러리로</a></p>
+    <div id="profile-head"></div>
+    <div id="profile-grid" class="grid"></div>
   </section>
 </main>
-<script src="storage.js?v=4"></script>
-<script src="app.js?v=4"></script>
+
+<!-- 그림 하나를 크게 보고 댓글 쓰는 창 -->
+<dialog id="detail"></dialog>
+
+<script src="storage.js?v=5"></script>
+<script src="app.js?v=5"></script>
 </body>
 </html>

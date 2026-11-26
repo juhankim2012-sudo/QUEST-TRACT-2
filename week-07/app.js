@@ -1,27 +1,60 @@
-const canvas = document.getElementById("canvas");
+const $ = (id) => document.getElementById(id);
+const canvas = $("canvas");
 const ctx = canvas.getContext("2d", { willReadFrequently: true });
-const colorEl = document.getElementById("color");
-const sizeEl = document.getElementById("size");
-const nameEl = document.getElementById("name");
-const titleEl = document.getElementById("title");
-const msg = document.getElementById("msg");
-const listEl = document.getElementById("list");
-const penBtn = document.getElementById("pen");
-const eraserBtn = document.getElementById("eraser");
-const undoBtn = document.getElementById("undo");
+const colorEl = $("color");
+const sizeEl = $("size");
+const nameEl = $("name");
+const titleEl = $("title");
+const msg = $("msg");
+const penBtn = $("pen");
+const eraserBtn = $("eraser");
+const undoBtn = $("undo");
+const detail = $("detail");
 
-// ---- 기능 1: 이름 기억하기 ----
+// ================= 화면 바꾸기 (주소 끝의 # 로 구분) =================
+//   #/        갤러리
+//   #/draw    그리기
+//   #/u/이름   그 사람의 공간
+const views = { gallery: $("view-gallery"), draw: $("view-draw"), profile: $("view-profile") };
+function show(name) {
+  for (const [k, el] of Object.entries(views)) el.hidden = k !== name;
+  window.scrollTo(0, 0);
+}
+function go(hash) {
+  if (location.hash === hash) route(); else location.hash = hash;
+}
+function route() {
+  if (detail.open) detail.close();
+  const h = location.hash;
+  if (h === "#/draw") {
+    if (!nameEl.value) nameEl.value = Store.getName();
+    msg.textContent = "";
+    show("draw");
+  } else if (h.startsWith("#/u/")) {
+    let who = "";
+    try { who = decodeURIComponent(h.slice(4)); } catch { go("#/"); return; }
+    renderProfile(who);
+    show("profile");
+  } else {
+    renderGallery();
+    show("gallery");
+  }
+}
+window.addEventListener("hashchange", route);
+$("go-draw").onclick = () => go("#/draw");
+
+// ================= 기능 1: 이름 기억하기 =================
 nameEl.value = Store.getName();
 nameEl.addEventListener("change", () => Store.setName(nameEl.value.trim()));
 
-// ---- 그림판 ----
+// ================= 그림판 =================
 function blank() {
   ctx.fillStyle = "#fff";
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 blank();
 
-// ---- 기능 2: 되돌리기 · 지우개 ----
+// ================= 기능 2: 되돌리기 · 지우개 =================
 const history = [];
 const MAX_HISTORY = 30;
 function remember() {
@@ -46,11 +79,12 @@ function setTool(isEraser) {
 penBtn.onclick = () => setTool(false);
 eraserBtn.onclick = () => setTool(true);
 
-document.getElementById("clear").onclick = () => { remember(); blank(); };
+$("clear").onclick = () => { remember(); blank(); };
 
 let drawing = false, last = null;
 function pos(e) {
   const r = canvas.getBoundingClientRect();
+  if (!r.width || !r.height) return { x: 0, y: 0 };
   return { x: (e.clientX - r.left) * canvas.width / r.width, y: (e.clientY - r.top) * canvas.height / r.height };
 }
 canvas.addEventListener("pointerdown", (e) => {
@@ -70,8 +104,9 @@ function stroke(a, b) {
   ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
 }
 
-// ---- 올리기 ----
-document.getElementById("post").onclick = () => {
+// ================= 올리기 =================
+let pendingToast = ""; // 갤러리로 돌아온 뒤 보여 줄 알림
+$("post").onclick = () => {
   const author = nameEl.value.trim();
   if (!author) { msg.textContent = "이름을 먼저 써 주세요."; nameEl.focus(); return; }
   Store.setName(author);
@@ -82,77 +117,149 @@ document.getElementById("post").onclick = () => {
     msg.textContent = "저장하지 못했어요. 브라우저 저장 공간이 가득 찼을 수 있어요.";
     return;
   }
-  msg.textContent = "올렸어요!";
-  titleEl.value = ""; blank(); history.length = 0; undoBtn.disabled = true; render();
+  titleEl.value = ""; blank(); history.length = 0; undoBtn.disabled = true;
+  pendingToast = "올렸어요!";
+  go("#/");
 };
 
-// ---- 갤러리 ----
+// ================= 갤러리 / 한 사람의 공간 =================
 function fmt(t) { return new Date(t).toLocaleString("ko-KR"); }
+function shownName(a) { return a || "이름 없음"; }
 
-// ---- 기능 4: 이름별로 모아 보기 ----
-let onlyAuthor = null; // null 이면 전부 보기
-const filterEl = document.getElementById("filter");
-function showOnly(author) { onlyAuthor = author; render(); }
+// 그림 한 칸 (작은 그림 + 제목 + 이름 + 댓글 수)
+function makeItem(d) {
+  const item = document.createElement("div"); item.className = "item";
 
-function render() {
-  const all = Store.list();
-  if (onlyAuthor !== null && !all.some((d) => d.author === onlyAuthor)) onlyAuthor = null; // 그림이 다 지워졌으면 전체로
-  const items = onlyAuthor === null ? all : all.filter((d) => d.author === onlyAuthor);
+  const thumb = document.createElement("button"); thumb.type = "button"; thumb.className = "thumb";
+  thumb.title = "크게 보기";
+  const img = document.createElement("img"); img.src = d.image; img.alt = d.title; img.loading = "lazy";
+  thumb.append(img);
+  thumb.onclick = () => openDetail(d.id);
 
-  filterEl.textContent = "";
-  if (onlyAuthor !== null) {
-    const label = document.createElement("span");
-    label.textContent = (onlyAuthor || "이름 없음") + " 님의 그림만 보는 중 (" + items.length + "개) ";
-    const back = document.createElement("button"); back.type = "button"; back.textContent = "전체 보기";
-    back.onclick = () => showOnly(null);
-    filterEl.append(label, back);
+  const h = document.createElement("h3"); h.textContent = d.title;
+
+  const sub = document.createElement("div"); sub.className = "sub";
+  // ---- 기능 4: 이름을 누르면 그 사람의 공간으로 ----
+  const who = document.createElement("button"); who.type = "button"; who.className = "who";
+  who.textContent = shownName(d.author);
+  who.title = "이 사람의 공간 보기";
+  who.onclick = () => go("#/u/" + encodeURIComponent(d.author || ""));
+  const cnt = document.createElement("span"); cnt.textContent = "댓글 " + d.comments.length;
+  sub.append(who, cnt);
+
+  item.append(thumb, h, sub);
+  return item;
+}
+
+function fillGrid(el, items, emptyText) {
+  el.textContent = "";
+  if (!items.length) {
+    const p = document.createElement("p"); p.className = "empty"; p.textContent = emptyText;
+    el.append(p); return;
+  }
+  for (const d of items) el.append(makeItem(d));
+}
+
+function renderGallery() {
+  $("toast").textContent = pendingToast;
+  pendingToast = "";
+  fillGrid($("grid"), Store.list(), "아직 올라온 그림이 없어요. 위의 '그리기' 단추로 첫 그림을 올려 보세요!");
+}
+
+function renderProfile(author) {
+  const mine = Store.list().filter((d) => d.author === author);
+  const comments = mine.reduce((n, d) => n + d.comments.length, 0);
+  const head = $("profile-head");
+  head.textContent = "";
+  const av = document.createElement("div"); av.className = "avatar";
+  av.textContent = shownName(author).slice(0, 1);
+  const box = document.createElement("div");
+  const h = document.createElement("h2");
+  h.textContent = shownName(author) + (author && author === Store.getName() ? " (나)" : "");
+  const p = document.createElement("p");
+  p.textContent = "그림 " + mine.length + "개 · 받은 댓글 " + comments + "개";
+  box.append(h, p);
+  head.append(av, box);
+  fillGrid($("profile-grid"), mine, "이 이름으로 올린 그림이 없어요.");
+}
+
+// ================= 그림 크게 보기 + 댓글 =================
+let openId = null;
+function openDetail(id) {
+  openId = id;
+  renderDetail();
+  if (!detail.open) detail.showModal();
+}
+detail.addEventListener("close", () => { openId = null; });
+// 창 바깥(어두운 곳)을 누르면 닫기
+detail.addEventListener("click", (e) => { if (e.target === detail) detail.close(); });
+
+function renderDetail() {
+  const d = Store.list().find((x) => x.id === openId);
+  detail.textContent = "";
+  if (!d) { if (detail.open) detail.close(); return; }
+
+  const h = document.createElement("h3"); h.textContent = d.title;
+  const img = document.createElement("img"); img.src = d.image; img.alt = d.title;
+  const meta = document.createElement("div"); meta.className = "meta";
+  const who = document.createElement("button"); who.type = "button"; who.className = "who";
+  who.textContent = shownName(d.author);
+  who.onclick = () => go("#/u/" + encodeURIComponent(d.author || ""));
+  meta.append(who, " · " + fmt(d.created));
+  detail.append(h, img, meta);
+
+  for (const c of d.comments) {
+    const p = document.createElement("div"); p.className = "comment";
+    const by = document.createElement("strong"); by.textContent = shownName(c.author) + " ";
+    const body = document.createElement("span"); body.textContent = c.text + " ";
+    const s = document.createElement("small"); s.textContent = fmt(c.created);
+    p.append(by, body, s); detail.append(p);
   }
 
-  listEl.textContent = "";
-  if (!all.length) { listEl.textContent = "아직 올라온 그림이 없어요. 첫 그림을 올려 보세요!"; return; }
-  for (const d of items) {
-    const card = document.createElement("div"); card.className = "card";
-    const h = document.createElement("h3"); h.textContent = d.title;
-    const meta = document.createElement("div"); meta.className = "meta";
-    const who = document.createElement("button"); who.type = "button"; who.className = "who";
-    who.textContent = d.author || "이름 없음";
-    who.title = "이 사람의 그림만 보기";
-    who.onclick = () => showOnly(d.author);
-    meta.append(who, " · " + fmt(d.created));
-    const img = document.createElement("img"); img.src = d.image; img.alt = d.title;
-    card.append(h, img, meta);
+  const form = document.createElement("form"); form.className = "cform";
+  const cname = document.createElement("input"); cname.className = "cname"; cname.placeholder = "내 이름";
+  cname.maxLength = 20; cname.value = Store.getName();
+  const input = document.createElement("input"); input.placeholder = "댓글 쓰기"; input.maxLength = 200;
+  const btn = document.createElement("button"); btn.textContent = "등록";
+  const err = document.createElement("div"); err.setAttribute("role", "status");
+  form.append(cname, input, btn);
+  form.onsubmit = (e) => {
+    e.preventDefault();
+    const t = input.value.trim(); if (!t) return;
+    const author = cname.value.trim();
+    if (!author) { err.textContent = "이름을 먼저 써 주세요."; cname.focus(); return; }
+    Store.setName(author);
+    Store.addComment(d.id, author, t);
+    renderDetail();
+    refreshBehind();
+  };
 
-    for (const c of d.comments) {
-      const p = document.createElement("div"); p.className = "comment";
-      const who = document.createElement("strong"); who.textContent = (c.author || "이름 없음") + " ";
-      const body = document.createElement("span"); body.textContent = c.text + " ";
-      const s = document.createElement("small"); s.textContent = fmt(c.created);
-      p.append(who, body, s); card.append(p);
-    }
+  // ================= 기능 3: 그림 내려받기 =================
+  const actions = document.createElement("div"); actions.className = "actions";
+  const dl = document.createElement("a"); dl.className = "btn"; dl.textContent = "내려받기";
+  dl.href = d.image; dl.download = (d.title.replace(/[\\/:*?"<>|]/g, "") || "그림") + ".png";
+  const del = document.createElement("button"); del.type = "button"; del.textContent = "그림 지우기";
+  del.onclick = () => {
+    if (!confirm("이 그림을 지울까요?")) return;
+    Store.removeDrawing(d.id);
+    detail.close();
+    refreshBehind();
+  };
+  const close = document.createElement("button"); close.type = "button"; close.textContent = "닫기";
+  close.onclick = () => detail.close();
+  actions.append(dl, del, close);
 
-    const form = document.createElement("form"); form.className = "cform";
-    const input = document.createElement("input"); input.placeholder = "댓글 쓰기"; input.maxLength = 200;
-    const btn = document.createElement("button"); btn.textContent = "등록";
-    form.append(input, btn);
-    form.onsubmit = (e) => {
-      e.preventDefault();
-      const t = input.value.trim(); if (!t) return;
-      const author = nameEl.value.trim();
-      if (!author) { msg.textContent = "댓글을 쓰려면 위에 이름을 먼저 써 주세요."; nameEl.focus(); return; }
-      Store.setName(author);
-      Store.addComment(d.id, author, t); render();
-    };
+  detail.append(form, err, actions);
+}
 
-    // ---- 기능 3: 그림 내려받기 ----
-    const actions = document.createElement("div"); actions.className = "actions";
-    const dl = document.createElement("a"); dl.className = "btn"; dl.textContent = "내려받기";
-    dl.href = d.image; dl.download = (d.title.replace(/[\\/:*?"<>|]/g, "") || "그림") + ".png";
-    const del = document.createElement("button"); del.type = "button"; del.textContent = "그림 지우기";
-    del.onclick = () => { if (confirm("이 그림을 지울까요?")) { Store.removeDrawing(d.id); render(); } };
-    actions.append(dl, del);
-
-    card.append(form, actions);
-    listEl.append(card);
+// 창 뒤의 화면(댓글 수 등)을 새로 그림
+function refreshBehind() {
+  const h = location.hash;
+  if (h.startsWith("#/u/")) {
+    try { renderProfile(decodeURIComponent(h.slice(4))); } catch { /* 무시 */ }
+  } else if (h !== "#/draw") {
+    renderGallery();
   }
 }
-render();
+
+route();
