@@ -89,15 +89,36 @@ document.getElementById("post").onclick = () => {
 // ---- 갤러리 ----
 function fmt(t) { return new Date(t).toLocaleString("ko-KR"); }
 
+// ---- 기능 4: 이름별로 모아 보기 ----
+let onlyAuthor = null; // null 이면 전부 보기
+const filterEl = document.getElementById("filter");
+function showOnly(author) { onlyAuthor = author; render(); }
+
 function render() {
-  const items = Store.list();
+  const all = Store.list();
+  if (onlyAuthor !== null && !all.some((d) => d.author === onlyAuthor)) onlyAuthor = null; // 그림이 다 지워졌으면 전체로
+  const items = onlyAuthor === null ? all : all.filter((d) => d.author === onlyAuthor);
+
+  filterEl.textContent = "";
+  if (onlyAuthor !== null) {
+    const label = document.createElement("span");
+    label.textContent = (onlyAuthor || "이름 없음") + " 님의 그림만 보는 중 (" + items.length + "개) ";
+    const back = document.createElement("button"); back.type = "button"; back.textContent = "전체 보기";
+    back.onclick = () => showOnly(null);
+    filterEl.append(label, back);
+  }
+
   listEl.textContent = "";
-  if (!items.length) { listEl.textContent = "아직 올라온 그림이 없어요. 첫 그림을 올려 보세요!"; return; }
+  if (!all.length) { listEl.textContent = "아직 올라온 그림이 없어요. 첫 그림을 올려 보세요!"; return; }
   for (const d of items) {
     const card = document.createElement("div"); card.className = "card";
     const h = document.createElement("h3"); h.textContent = d.title;
     const meta = document.createElement("div"); meta.className = "meta";
-    meta.textContent = (d.author || "이름 없음") + " · " + fmt(d.created);
+    const who = document.createElement("button"); who.type = "button"; who.className = "who";
+    who.textContent = d.author || "이름 없음";
+    who.title = "이 사람의 그림만 보기";
+    who.onclick = () => showOnly(d.author);
+    meta.append(who, " · " + fmt(d.created));
     const img = document.createElement("img"); img.src = d.image; img.alt = d.title;
     card.append(h, img, meta);
 
